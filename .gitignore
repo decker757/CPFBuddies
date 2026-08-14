@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# graphify — commit graph.json (it has a merge driver in .gitattributes),
+# but not the local rebuild cache or generated viz.
+graphify-out/cache/
+graphify-out/*.html
