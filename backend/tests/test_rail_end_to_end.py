@@ -323,31 +323,23 @@ class TestHttpSurface:
 
         assert response.status_code == 404
 
-    @pytest.mark.parametrize(
-        ("rail_fixture", "cap", "because"),
-        [
-            ("clean", "4.00", "preferred SKU"),
-            ("unpinned", "0.40", "no in-stock candidate"),
-        ],
-    )
-    def test_a_cap_nothing_satisfies_is_a_502_and_not_a_crash(
-        self, request, rail_fixture, cap, because
+    def test_a_pinned_sku_the_merchant_will_not_quote_is_a_502_and_not_a_crash(
+        self, clean
     ):
-        """A budget below every listing must not reach the browser as a 500.
+        """An unavailable pin must not reach the browser as a 500.
 
-        The Browser Agent drops candidates over the cap before selecting, so a
-        low enough cap leaves it nothing and it raises `NoCandidateFound`. The
+        `TB-SOFT-2PK` is priced at S$4.20, and the marketplace honours
+        `max_price` for ordinary listings, so a cap of S$4.00 means it is never
+        quoted and the Browser Agent raises `NoCandidateFound`. The
         orchestrator's API only knows `NoCandidate`, and neither exception is a
         subclass of the other, so this used to surface as an unhandled 500 with
-        a stack trace. Two ways in, and a demo hits both: typing a small number
-        into the intent bar, and pinning a demo SKU the cap then filters out.
+        a stack trace.
 
-        The reason is asserted, not just the status. "Your budget was too low"
-        and "the pinned SKU is not for sale" need different fixes from whoever
-        is reading the red box thirty seconds before a demo.
+        The reason is asserted, not just the status: whoever is reading a red
+        box thirty seconds before a demo needs to know it was the pin, not the
+        rail.
         """
-        rail = request.getfixturevalue(rail_fixture)
-        client = TestClient(rail.app)
+        client = TestClient(clean.app)
 
         response = client.post(
             "/purchases",
@@ -355,10 +347,47 @@ class TestHttpSurface:
                 "principal": PRINCIPAL,
                 "agent_id": BROWSER_AGENT_ID,
                 "intent": INTENT,
-                "max_amount": {"currency": "XSGD", "amount": cap},
+                "max_amount": {"currency": "XSGD", "amount": "4.00"},
                 "ttl_seconds": 600,
             },
         )
 
         assert response.status_code == 502
-        assert because in response.json()["detail"]
+        assert "preferred SKU" in response.json()["detail"]
+
+    def test_an_over_cap_listing_is_a_deterministic_fail_not_an_error(self, unpinned):
+        """A merchant ignoring `max_price` is a verdict, not a transport failure.
+
+        `TB-OVER-CAP` is returned whatever ceiling the buyer states, and the
+        Browser Agent no longer filters on price — deciding what is affordable
+        is the Verifier's job, not that of an agent this system assumes is
+        compromisable. So a cap nothing honest satisfies now reaches a charge
+        and gets refused on the record, which is the outcome CLAUDE.md wants:
+        `CHARGE_OVER_CAP` is its canonical example of a fact no human may
+        override.
+
+        Asserted over HTTP because 200-with-a-FAIL is the contract the dashboard
+        depends on. A FAIL is a decision this system made correctly, and dressing
+        it as a 4xx or 5xx would put it in the frontend's error path instead of
+        its verdict path.
+        """
+        client = TestClient(unpinned.app)
+
+        response = client.post(
+            "/purchases",
+            json={
+                "principal": PRINCIPAL,
+                "agent_id": BROWSER_AGENT_ID,
+                "intent": INTENT,
+                "max_amount": {"currency": "XSGD", "amount": "0.40"},
+                "ttl_seconds": 600,
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["verdict"]["decision"] == "FAIL"
+        assert ReasonCode.CHARGE_OVER_CAP in body["verdict"]["reason_codes"]
+        assert body["verdict"]["failed_deterministically"] is True
+        assert body["hold"] is None
+        assert body["queued_message_id"] is None

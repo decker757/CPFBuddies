@@ -20,7 +20,7 @@ from app.contracts import (
     xsgd,
 )
 from app.integrity import calculate_basket_hash
-from app.marketplace.catalog import CATALOG
+from app.marketplace.catalog import CATALOG, IGNORES_PRICE_CEILING
 from app.marketplace.ports import Clock, QuoteIdGenerator, QuoteRepository
 
 #: What this marketplace *publishes* about itself in every listings response.
@@ -117,12 +117,18 @@ def search_catalog(
     query_tokens = {token for token in re.findall(r"[a-z0-9]+", raw_query) if len(token) >= 3}
     result = []
     for item in catalog:
+        # A merchant that ignores the buyer's ceiling. The Verifier compares the
+        # charge against the mandate cap regardless, which is the point: this
+        # filter is a courtesy, and enforcement lives somewhere the merchant
+        # does not control.
+        honours_ceiling = item.sku not in IGNORES_PRICE_CEILING
         if raw_query == item.sku.casefold():
-            return [item] if ceiling is None or item.price.minor_units <= ceiling else []
+            over = ceiling is not None and item.price.minor_units > ceiling
+            return [] if over and honours_ceiling else [item]
         searchable = f"{item.sku} {item.title} {item.description}".casefold()
         if query_tokens and not query_tokens.intersection(re.findall(r"[a-z0-9]+", searchable)):
             continue
-        if ceiling is not None and item.price.minor_units > ceiling:
+        if honours_ceiling and ceiling is not None and item.price.minor_units > ceiling:
             continue
         result.append(item)
     return result

@@ -82,11 +82,26 @@ class BrowserAgent:
         if max_price.minor_units <= 0:
             raise ValueError("max_price must be positive")
         responses = await self._fetch_all(intent=normalized_intent, max_price=max_price)
+        # Availability only. The cap is deliberately not enforced here.
+        #
+        # `max_price` is already sent to the merchant, who may honour it or not;
+        # re-applying it after the fact would move a check inside the blast
+        # radius of an agent this system assumes is compromisable. The port this
+        # agent sits behind says so directly: returning a candidate that is over
+        # the cap is not an error, "and an agent that could suppress its own
+        # violations by declining to report them would be a worse design".
+        #
+        # It also made CHARGE_OVER_CAP unreachable end to end -- the
+        # deterministic FAIL that CLAUDE.md holds up as the canonical thing no
+        # human may override could never fire against the running system.
+        #
+        # Selection is unaffected: `_select` still takes the lowest price, so an
+        # over-cap listing is only ever chosen when one is pinned.
         candidates = [
             (response, item)
             for response in responses
             for item in response.items
-            if item.availability == "in_stock" and item.price.minor_units <= max_price.minor_units
+            if item.availability == "in_stock"
         ]
         response, selected = self._select(candidates, preferred_sku)
         return CandidateSelection(
