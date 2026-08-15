@@ -1,0 +1,147 @@
+{
+  ".claude/settings.json": {
+    "mtime": 1786734882.504641,
+    "ast_hash": "f90550e90992e2a2d92448c2c69cf7d0",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1786735195.6714053,
+    "ast_hash": "6d91813d63b514af9384753b934003cc",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1786734713.3302186,
+    "ast_hash": "cc0787f394ca1536f33763220de771b9",
+    "semantic_hash": ""
+  },
+  "backend/app/__init__.py": {
+    "mtime": 1786784191.584019,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "backend/app/agent_registry/__init__.py": {
+    "mtime": 1786784191.58416,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "backend/app/agent_registry/models.py": {
+    "mtime": 1786784191.5843732,
+    "ast_hash": "42a7fb4caf984119386af35834998889",
+    "semantic_hash": ""
+  },
+  "backend/app/agent_registry/repository.py": {
+    "mtime": 1786784191.5844913,
+    "ast_hash": "f209d9bce4e41d0fa29712360490f8c1",
+    "semantic_hash": ""
+  },
+  "backend/app/agent_registry/routes.py": {
+    "mtime": 1786784191.5846155,
+    "ast_hash": "c901ca9610aae82d910179a67c6eb233",
+    "semantic_hash": ""
+  },
+  "backend/app/agent_registry/schemas.py": {
+    "mtime": 1786784191.5847366,
+    "ast_hash": "b6d53265933cfdbb5fdf2a0f8d8d1e4b",
+    "semantic_hash": ""
+  },
+  "backend/app/core/__init__.py": {
+    "mtime": 1786784191.5848026,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "backend/app/core/config.py": {
+    "mtime": 1786784191.5849617,
+    "ast_hash": "87227a494dbc2212fadc5f629262d5e7",
+    "semantic_hash": ""
+  },
+  "backend/app/main.py": {
+    "mtime": 1786784191.5850759,
+    "ast_hash": "05873f0f4ace56809b6ee00228d8e0fe",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/__init__.py": {
+    "mtime": 1786784191.5851398,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/models.py": {
+    "mtime": 1786784191.5853186,
+    "ast_hash": "bd1028ae848082ce6bfe6c9eee28e696",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/repository.py": {
+    "mtime": 1786784191.5854464,
+    "ast_hash": "2690245619e64b46644fd9e4cbe1bbf7",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/routes.py": {
+    "mtime": 1786784191.5855744,
+    "ast_hash": "625d64725af8597b4cfeed9b8f5bbc57",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/schemas.py": {
+    "mtime": 1786784191.5857053,
+    "ast_hash": "da5380f4b4c2adfbbc9592a0f8aa779d",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/service.py": {
+    "mtime": 1786784191.585888,
+    "ast_hash": "6269d50f89dabdaddb3799ae6e6dd421",
+    "semantic_hash": ""
+  },
+  "backend/app/mandate/signing.py": {
+    "mtime": 1786784191.5860622,
+    "ast_hash": "73c6fb931fa0ff44173dbc4f3f3a28b5",
+    "semantic_hash": ""
+  },
+  "backend/app/verifier/__init__.py": {
+    "mtime": 1786784191.586134,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "backend/app/verifier/rules.py": {
+    "mtime": 1786784191.5863745,
+    "ast_hash": "df89c1e0e07f3faf0c0bc0ee79779d7e",
+    "semantic_hash": ""
+  },
+  "backend/scripts/manual_test.sh": {
+    "mtime": 1786784191.5869007,
+    "ast_hash": "3779789abb7e4e4cb28a6cf6ff12e4d8",
+    "semantic_hash": ""
+  },
+  "backend/tests/__init__.py": {
+    "mtime": 1786784191.5870056,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_mandates.py": {
+    "mtime": 1786784191.5872917,
+    "ast_hash": "d1712b1dd4754562bbf508999cac27da",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_signature_verification.py": {
+    "mtime": 1786784191.5874994,
+    "ast_hash": "bfb0d2bb7cb7ae2a67ec742d5b1cbd64",
+    "semantic_hash": ""
+  },
+  "backend/tests/test_verifier_rules.py": {
+    "mtime": 1786784191.58772,
+    "ast_hash": "8369be217c293462499be35c6a4371a4",
+    "semantic_hash": ""
+  },
+  "backend/README.md": {
+    "mtime": 1786784191.5839493,
+    "ast_hash": "af33ebeea0d851c35f6122c03a5e9af5",
+    "semantic_hash": ""
+  },
+  "backend/requirements.txt": {
+    "mtime": 1786784191.5866091,
+    "ast_hash": "c4ae9e5904a9e4d47f48cd66bfe1dbc8",
+    "semantic_hash": ""
+  },
+  "docs/mandate-service-tasks.md": {
+    "mtime": 1786784191.5880253,
+    "ast_hash": "7a5284fc2064592d11b84321ae7229f2",
+    "semantic_hash": ""
+  }
+}
