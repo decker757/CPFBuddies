@@ -40,7 +40,7 @@ from trustrail.models.money import Money
 from trustrail.models.registry import AgentRole
 from trustrail.orchestrator.onboarding import OnboardingOrchestrator
 from trustrail.orchestrator.purchase import PurchaseOrchestrator
-from trustrail.ports import AuditLog, MerchantDirectory
+from trustrail.ports import AuditLog, MerchantDirectory, Signer
 from trustrail.settlement.models import SettlementReceipt
 from trustrail.settlement.queue.base import SettlementQueue
 from trustrail.settlement.rails.base import SettlementRail
@@ -147,7 +147,7 @@ def build_rail(
     domain: Eip712Domain | None = None,
     evaluator_model: object | None = None,
     chain: ChainWiring | None = None,
-    issuer: LocalSigner | None = None,
+    issuer: Signer | None = None,
     settlement_rail: SettlementRail | None = None,
     cors_origins: list[str] | None = None,
     resources: Resources | None = None,
@@ -405,13 +405,38 @@ def chain_app() -> FastAPI:
     ).app
 
 
-def _required_signer(env_var: str) -> LocalSigner:
+def _required_signer(env_var: str) -> Signer:
+    """The key for one role, from KMS if there is one and the environment if not.
+
+    KMS wins when both are set. The point of moving a key into KMS is that the
+    private one stops being used, and a leftover `.env` entry quietly taking
+    precedence would leave the old key signing while everyone believed
+    otherwise — the failure mode this change exists to remove.
+
+    `KmsSigner` never sees key material; it can only ask KMS to sign a digest.
+    Everything downstream needs the address and nothing else, which is why this
+    can return either without the rest of the rail noticing.
+    """
+    kms_key = os.environ.get(f"{env_var}_KMS")
+    if kms_key:
+        from trustrail.signing.kms import KmsSigner
+
+        logger.info("%s: signing via KMS (%s)", env_var, kms_key)
+        return KmsSigner(kms_key)
+
     key = os.environ.get(env_var)
     if not key:
         raise RuntimeError(
-            f"{env_var} is not set. `chain_app` settles real money and will not "
-            f"invent a key to do it with; `demo_app` runs offline without one."
+            f"neither {env_var}_KMS nor {env_var} is set. `chain_app` settles "
+            f"real money and will not invent a key to do it with; `demo_app` "
+            f"runs offline without one."
         )
+    logger.warning(
+        "%s: signing with a private key from the environment. CLAUDE.md wants "
+        "this in KMS — set %s_KMS to move it.",
+        env_var,
+        env_var,
+    )
     return LocalSigner.from_hex(key)
 
 
