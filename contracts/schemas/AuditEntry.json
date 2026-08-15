@@ -7,7 +7,10 @@
         "MANDATE_REVOKED",
         "MANDATE_CONSUMED",
         "KILL_SWITCH_SET",
-        "VERDICT_ISSUED"
+        "VERDICT_ISSUED",
+        "SETTLEMENT_SETTLED",
+        "SETTLEMENT_REFUSED",
+        "SETTLEMENT_FAILED"
       ],
       "title": "AuditEventType",
       "type": "string"
@@ -106,6 +109,92 @@
       ],
       "title": "ReasonCode",
       "type": "string"
+    },
+    "SettlementOutcome": {
+      "description": "What a rail did with an instruction.\n\nREFUSED and ERROR are kept apart deliberately: REFUSED means the rail worked and declined\n(an onchain revert, a card authorisation denied) and retrying cannot change the answer,\nwhile ERROR means the rail itself failed and redelivery may succeed. Conflating them\nretries reverted transactions forever, burning gas for nothing.",
+      "enum": [
+        "SETTLED",
+        "REFUSED",
+        "ERROR"
+      ],
+      "title": "SettlementOutcome",
+      "type": "string"
+    },
+    "SettlementRecord": {
+      "additionalProperties": false,
+      "description": "How a charge was executed, once the Verifier had already allowed it.\n\nCarried on the audit entry rather than in free text because the dashboard renders\n``explorer_url`` as a link -- CLAUDE.md's demo ends on a transaction opened in Snowtrace,\nand a hash buried in prose cannot be linked.",
+      "properties": {
+        "rail": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Rail",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SettlementOutcome"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Transaction hash on the onchain rail, card id on the card rail.",
+          "title": "Reference"
+        },
+        "explorer_url": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Explorer Url"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasonCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Present when the rail refused for a reason the wire contract names."
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        }
+      },
+      "required": [
+        "rail",
+        "outcome"
+      ],
+      "title": "SettlementRecord",
+      "type": "object"
     },
     "Verdict": {
       "additionalProperties": false,
@@ -218,6 +307,18 @@
       ],
       "default": null,
       "description": "Present on VERDICT_ISSUED, carrying the full check trace."
+    },
+    "settlement": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettlementRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Present on the SETTLEMENT_* events, carrying the rail and its result."
     }
   },
   "required": [

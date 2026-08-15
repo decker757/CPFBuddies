@@ -93,11 +93,29 @@ def _write_index(path: Path, scenarios: list[Scenario]) -> None:
         "for it. The table below is produced by running the Verifier over them, "
         "so it cannot drift from actual behaviour.\n\n"
     )
-    path.write_text(header + "\n".join(rows) + "\n")
+    _write_text(path, header + "\n".join(rows) + "\n")
 
 
 def _write_json(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    _write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+
+
+def _write_text(path: Path, content: str) -> None:
+    """Write generated output identically on every platform.
+
+    Both arguments are load-bearing, and the default for each is wrong here:
+
+    - ``encoding`` because the output is deliberately non-ASCII (``ensure_ascii=False``, plus
+      em-dashes in the prose). Without it Python uses the platform default, which is cp1252 on
+      Windows, and every dash becomes a replacement character.
+    - ``newline`` because text mode otherwise translates ``\\n`` to ``os.linesep``, giving CRLF
+      on Windows and LF everywhere else. That would leave the bytes on disk depending on who
+      ran the export, and whether the diff looked clean depending on their ``core.autocrlf``.
+
+    The promise this file makes is that a clean ``git diff`` means the wire contract did not
+    move. That promise has to hold for a reviewer on macOS reading a commit made on Windows.
+    """
+    path.write_text(content, encoding="utf-8", newline="\n")
 
 
 def _default_root() -> Path:
