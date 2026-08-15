@@ -144,6 +144,12 @@
     "config_version": {
       "title": "Config Version",
       "type": "string"
+    },
+    "failed_deterministically": {
+      "description": "True when a fact, not a threshold, rejected this charge.\n\nThis is the distinction the approval UI needs: a deterministic FAIL must\nnever render an override button.\n\n**Computed, so that it crosses the wire.** It was a plain property, which\nmeant it was absent from the JSON entirely — and a dashboard reading\n`undefined` gets a falsy value and renders the override button on a bad\nsignature. Deriving it client-side instead would put this rule in two\nlanguages and let them drift. The server states it.",
+      "readOnly": true,
+      "title": "Failed Deterministically",
+      "type": "boolean"
     }
   },
   "required": [
@@ -155,7 +161,8 @@
     "risk_score",
     "evaluated_at",
     "verifier_version",
-    "config_version"
+    "config_version",
+    "failed_deterministically"
   ],
   "title": "Verdict",
   "type": "object"

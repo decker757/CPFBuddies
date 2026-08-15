@@ -50,9 +50,24 @@ def export(root: Path) -> None:
 
 
 def _write_schemas(directory: Path) -> None:
+    """Write each published model's *serialisation* schema.
+
+    Serialisation rather than the default, because these files answer "what will
+    I receive", and computed fields exist only in that mode. Under the default,
+    `Verdict.failed_deterministically` was missing from the published schema
+    entirely -- the one field the approval UI must obey to avoid offering a
+    button that clicks past a bad signature.
+
+    Only `Verdict` and `AuditEntry` (which embeds one) differ between the two
+    modes; every other published model is byte-identical either way, because a
+    model with no computed fields serialises exactly as it validates.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     for model in PUBLISHED_MODELS:
-        _write_json(directory / f"{model.__name__}.json", model.model_json_schema())
+        _write_json(
+            directory / f"{model.__name__}.json",
+            model.model_json_schema(mode="serialization"),
+        )
 
 
 def _write_fixtures(directory: Path, scenarios: list[Scenario]) -> None:

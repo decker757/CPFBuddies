@@ -7,6 +7,8 @@
         "MANDATE_REVOKED",
         "MANDATE_CONSUMED",
         "KILL_SWITCH_SET",
+        "CANDIDATE_SELECTED",
+        "EVALUATION_COMPLETE",
         "VERDICT_ISSUED",
         "SETTLEMENT_SETTLED",
         "SETTLEMENT_REFUSED",
@@ -70,6 +72,16 @@
       "title": "CheckResult",
       "type": "object"
     },
+    "Currency": {
+      "description": "Currencies this system can parse.\n\nOnly XSGD is settleable — that is a track rule, enforced by the Verifier\nrather than by this enum. The others exist because a merchant can quote in\nthem, and we would rather reject that with a reason code than fail to parse\nthe payload at all.",
+      "enum": [
+        "XSGD",
+        "SGD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
     "Decision": {
       "enum": [
         "PASS",
@@ -78,6 +90,126 @@
       ],
       "title": "Decision",
       "type": "string"
+    },
+    "EvaluationSubject": {
+      "additionalProperties": false,
+      "description": "Exactly what was evaluated, so the verdict cannot be reused elsewhere.",
+      "properties": {
+        "mandate_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Mandate Id",
+          "type": "string"
+        },
+        "basket_hash": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Basket Hash",
+          "type": "string"
+        },
+        "amount": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "mandate_id",
+        "basket_hash",
+        "amount"
+      ],
+      "title": "EvaluationSubject",
+      "type": "object"
+    },
+    "EvaluatorFlags": {
+      "additionalProperties": false,
+      "description": "Structured findings. Each one maps to a judgement check in the Verifier.",
+      "properties": {
+        "intent_match": {
+          "description": "Does the candidate product match what the buyer asked for, or is it a substitution?",
+          "title": "Intent Match",
+          "type": "boolean"
+        },
+        "injection_suspected": {
+          "description": "Does the listing text contain instructions aimed at the agent?",
+          "title": "Injection Suspected",
+          "type": "boolean"
+        },
+        "price_far_below_market": {
+          "title": "Price Far Below Market",
+          "type": "boolean"
+        },
+        "seller_is_new": {
+          "title": "Seller Is New",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intent_match",
+        "injection_suspected",
+        "price_far_below_market",
+        "seller_is_new"
+      ],
+      "title": "EvaluatorFlags",
+      "type": "object"
+    },
+    "EvaluatorOutput": {
+      "additionalProperties": false,
+      "description": "A risk score with its evidence. Structured output only, never free text.",
+      "properties": {
+        "evaluator_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/EvaluationSubject"
+        },
+        "risk_score": {
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Risk Score",
+          "type": "integer"
+        },
+        "flags": {
+          "$ref": "#/$defs/EvaluatorFlags"
+        },
+        "reasons": {
+          "items": {
+            "maxLength": 280,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "subject",
+        "risk_score",
+        "flags",
+        "reasons"
+      ],
+      "title": "EvaluatorOutput",
+      "type": "object"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "description": "A non-negative amount in a known currency.\n\nEquality and ordering compare exact minor units. Comparing across\ncurrencies raises: the Verifier rejects a currency mismatch with a reason\ncode before any comparison happens, so reaching that raise means a caller\nskipped the pipeline.",
+      "properties": {
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "amount": {
+          "title": "Amount",
+          "type": "string"
+        }
+      },
+      "required": [
+        "currency",
+        "amount"
+      ],
+      "title": "Money",
+      "type": "object"
     },
     "ReasonCode": {
       "description": "Stable codes. The dashboard and the audit log render these directly.",
@@ -245,6 +377,12 @@
         "config_version": {
           "title": "Config Version",
           "type": "string"
+        },
+        "failed_deterministically": {
+          "description": "True when a fact, not a threshold, rejected this charge.\n\nThis is the distinction the approval UI needs: a deterministic FAIL must\nnever render an override button.\n\n**Computed, so that it crosses the wire.** It was a plain property, which\nmeant it was absent from the JSON entirely — and a dashboard reading\n`undefined` gets a falsy value and renders the override button on a bad\nsignature. Deriving it client-side instead would put this rule in two\nlanguages and let them drift. The server states it.",
+          "readOnly": true,
+          "title": "Failed Deterministically",
+          "type": "boolean"
         }
       },
       "required": [
@@ -256,7 +394,8 @@
         "risk_score",
         "evaluated_at",
         "verifier_version",
-        "config_version"
+        "config_version",
+        "failed_deterministically"
       ],
       "title": "Verdict",
       "type": "object"
@@ -307,6 +446,18 @@
       ],
       "default": null,
       "description": "Present on VERDICT_ISSUED, carrying the full check trace."
+    },
+    "evaluation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvaluatorOutput"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Present on EVALUATION_COMPLETE, carrying the risk score, flags and the Evaluator's own reasons. The Verdict keeps the score but not the reasons, and a REVIEW hold is the only other place they surface -- so without this a PASS or a FAIL could never show why the Evaluator concluded what it did."
     },
     "settlement": {
       "anyOf": [

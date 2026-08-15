@@ -19,9 +19,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Self
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from trustrail.models.charge import Charge
 from trustrail.models.evaluation import SignedEvaluatorOutput
@@ -93,6 +93,15 @@ class ReviewHold(BaseModel):
             raise ValueError("hold carries a verdict about a different charge")
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_derived_fields(cls, data: Any) -> Any:
+        """Emitted, never accepted — see `Verdict._ignore_derived_fields`."""
+        if isinstance(data, dict) and "approvable" in data:
+            return {k: v for k, v in data.items() if k != "approvable"}
+        return data
+
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def approvable(self) -> bool:
         """Whether a human is even allowed to be asked about this.
@@ -100,7 +109,9 @@ class ReviewHold(BaseModel):
         A deterministic failure is a fact — a bad signature, an over-cap amount,
         an unregistered merchant. Offering a person a button for one of those
         would teach them to click through everything, which is precisely what
-        would destroy the claim the rail makes. The approval UI keys off this.
+        would destroy the claim the rail makes. The approval UI keys off this,
+        so like `Verdict.failed_deterministically` it is computed rather than a
+        bare property: a field the UI cannot see is a field it cannot obey.
         """
         return not self.verdict.failed_deterministically
 
