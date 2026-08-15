@@ -1,6 +1,7 @@
+import asyncio
 from datetime import UTC, datetime
 
-from app.contracts import xsgd
+import httpx
 from trustrail.x402.terms import (
     PAYMENT_HEADER,
     SCHEME,
@@ -8,11 +9,10 @@ from trustrail.x402.terms import (
     encode_proof,
     parse_terms,
 )
-import asyncio
 
-import httpx
-
+from app.contracts import xsgd
 from app.main import app
+from app.marketplace.service import MERCHANT
 
 
 def api_request(method: str, path: str, **kwargs) -> httpx.Response:
@@ -34,7 +34,12 @@ def test_listings_returns_quote_and_stable_basket_hash() -> None:
     assert body["quote_id"].startswith("q_")
     assert body["basket_hash"].startswith("0x")
     assert len(body["basket_hash"]) == 66
-    assert body["merchant"]["address"] == "0x1111111111111111111111111111111111111111"
+    # Asserted against MERCHANT rather than a literal: this checks that the
+    # listing publishes the platform's own address, which is what the Verifier
+    # compares to the Merchant Registry. Pinning the value here instead would
+    # mean changing the demo payout address breaks a test that has no opinion
+    # about what the address is.
+    assert body["merchant"]["address"] == MERCHANT.address.lower()
     assert {item["sku"] for item in body["items"]} >= {"TB-SOFT-2PK", "TB-INJECTION"}
     assert all("seller_id" in item for item in body["items"])
     assert all("seller_account_age_days" in item for item in body["items"])

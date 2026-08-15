@@ -1,9 +1,9 @@
 """The seams between this package and the outside world.
 
-Five protocols, one file, so the boundaries are visible at a glance. Every one
-of them has an in-memory implementation used by the tests and the offline demo,
-and an AWS implementation used in deployment. Nothing in `mandate/` or
-`verifier/` imports boto3.
+Seven protocols, one file, so the boundaries are visible at a glance. Each has
+an in-memory implementation used by the tests and the offline demo; the ones
+that hold state worth surviving a restart also have an AWS implementation.
+Nothing in `mandate/` or `verifier/` imports boto3.
 
 The Verifier depends on none of these. It is handed data.
 """
@@ -15,6 +15,7 @@ from typing import Protocol
 
 from trustrail.models.audit import AuditEntry
 from trustrail.models.mandate import MandateRecord, MandateStatus
+from trustrail.models.registry import AgentRecord, MerchantRecord
 from trustrail.models.review import ReviewHold
 
 
@@ -98,6 +99,82 @@ class AuditLog(Protocol):
     def list_for_mandate(self, mandate_id: str) -> list[AuditEntry]:
         """Entries for one mandate, oldest first."""
         ...
+
+
+class MandateRegistrar(Protocol):
+    """Puts a mandate on the ledger, and takes its authority away again.
+
+    The chain is where enforcement actually lives: `MandateRegistry.spend`
+    re-checks the cap, the merchant, the expiry and one-time consumption on its
+    own, so a compromised backend cannot move money outside a mandate. None of
+    that can happen for a mandate the contract has never heard of, which is why
+    registration is part of minting rather than an afterthought at settlement.
+
+    This is a Protocol so `trustrail.mandate` never imports web3. The chain
+    implementation is `settlement.chain.registrar.ChainMandateRegistrar`; the
+    offline demo and the tests pass nothing at all and stay entirely local.
+
+    Whoever implements this holds REGISTRAR_ROLE, and that is deliberately
+    *not* the settler's key: a compromised settlement worker can then still
+    never register a mandate of its own invention.
+    """
+
+    def register(
+        self,
+        *,
+        mandate_id: str,
+        principal: str,
+        agent_address: str,
+        cap_minor_units: int,
+        expires_at: datetime,
+        digest: str,
+    ) -> str | None:
+        """Record a freshly minted mandate. Returns a transaction hash if it made one.
+
+        The merchant is deliberately not a parameter. A mandate is minted before
+        a product is chosen, so there is nothing to bind yet; the contract takes
+        `address(0)` and binds on first spend.
+
+        Raises if the mandate could not be registered. Minting something that
+        can never settle is worse than failing loudly.
+        """
+        ...
+
+    def revoke(self, mandate_id: str) -> str | None:
+        """Withdraw a mandate's authority onchain. Returns a transaction hash."""
+        ...
+
+
+class MerchantDirectory(Protocol):
+    """Registered merchant platforms, looked up by the id a charge names.
+
+    `get` returning None is not an error condition to swallow: it means the
+    counterparty is unregistered, which the Verifier turns into a deterministic
+    FAIL. The caller passes the None straight through.
+    """
+
+    def get(self, merchant_id: str) -> MerchantRecord | None: ...
+
+    def put(self, record: MerchantRecord) -> None: ...
+
+    def list_all(self) -> list[MerchantRecord]:
+        """Every registered platform. Backs `GET /merchants` for discovery."""
+        ...
+
+
+class AgentDirectory(Protocol):
+    """Internal agents and the keys they sign their output with.
+
+    This is what makes a compromised Browser Agent unable to forge itself a
+    clean risk score: the Verifier checks the evaluator's signature against the
+    address on file here, and an agent it has never heard of is a FAIL.
+    """
+
+    def get(self, agent_id: str) -> AgentRecord | None: ...
+
+    def put(self, record: AgentRecord) -> None: ...
+
+    def list_all(self) -> list[AgentRecord]: ...
 
 
 class ReviewHoldStore(Protocol):

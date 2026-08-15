@@ -7,6 +7,7 @@ apart without a test failing.
 """
 
 from trustrail.models.audit import AuditEntry, AuditEventType
+from trustrail.models.candidate import PurchaseCandidate
 from trustrail.models.charge import Charge
 from trustrail.models.evaluation import (
     EvaluationSubject,
@@ -33,7 +34,7 @@ from trustrail.models.primitives import (
     new_hex32,
 )
 from trustrail.models.registry import AgentRecord, AgentRole, MerchantRecord
-from trustrail.models.review import ReviewHold, ReviewOutcome
+from trustrail.models.review import HumanApproval, ReviewHold, ReviewOutcome
 from trustrail.models.verdict import (
     CheckKind,
     CheckResult,
@@ -62,6 +63,7 @@ __all__ = [
     "Hex32",
     "HexAddress",
     "HexSignature",
+    "HumanApproval",
     "Mandate",
     "MandateBinding",
     "MandateRecord",
@@ -69,6 +71,7 @@ __all__ = [
     "MandateStatus",
     "MerchantRecord",
     "Money",
+    "PurchaseCandidate",
     "ReasonCode",
     "ReviewHold",
     "ReviewOutcome",

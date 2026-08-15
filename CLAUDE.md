@@ -31,6 +31,73 @@ Rules:
   between services, run `graphify path "<A>" "<B>"` to check you are not creating a cycle or
   bypassing the Verifier.
 
+## Where we are — 2026-08-15
+
+**The rail settles real money on Avalanche C-Chain Mainnet.** One purchase intent goes end to
+end: mandate minted and registered onchain, Browser Agent picks from the stub marketplace,
+Evaluator scores and signs, Verifier decides, Settlement Worker calls `spend()`, XSGD moves.
+
+### Deployed
+
+| What | Where |
+| --- | --- |
+| MandateRegistry | `0xDB4050Cf28cfa0CB956bFdbCb64341EE1C592c23` (chain 43114) |
+| XSGD | `0xb2F85b7AB3c2b6f62DF06dE6aE7D09c010a5096E` — **6 decimals, confirmed against the live token** |
+| REGISTRAR_ROLE | `0x664C05A1183F93369d8B7986De86d9fB51263446` |
+| SETTLER_ROLE | `0x1920dBEA4BFa66dDF8c30a0577b88D1E7805533c` |
+| First settlement | tx `0x0b6584f3a596f14de8c3294463ddce2c05d242f54ca08b28ae49a7091dcb4847` — 4.20 XSGD |
+
+The two roles are separate keys and the admin wallet holds neither, so it can manage roles but
+can neither register a mandate nor spend one. That is demonstrable: point the settler at
+`registerMandate` and watch it revert.
+
+Addresses come from `onchain/deployments/avalanche.json`. Never copy one into Python config.
+
+### Done
+
+- **A** — Mandate Service, Verifier, wire contract, Merchant + Agent registries, Purchase and
+  Onboarding Orchestrators.
+- **B** — stub marketplace, Browser Agent, Evaluator, signed evidence the Verifier accepts.
+- **C** — MandateRegistry live on mainnet, x402 onchain rail, Settlement Worker, EIP-3009
+  signing for the StraitsX card rail.
+- 353 tests, 16 of them against a live chain.
+
+### Not done, in the order worth doing
+
+1. **The revert demo (step 7).** Never rehearsed against a public explorer. It is the moment
+   this pitch is built around and there is currently no artifact for it. Force a charge over
+   the cap on mainnet and capture the reverted transaction. Costs a fraction of a cent.
+2. **Frontend.** Nothing exists — no approval UI, no dashboard, no REVIEW surface, no chat.
+   There is also no SSE or websocket endpoint to stream from, and CLAUDE.md requires the
+   dashboard to stream rather than poll. The audit log already carries everything it needs:
+   `VERDICT_ISSUED` entries hold the full check trace with each check tagged `DETERMINISTIC`
+   or `JUDGEMENT`.
+3. **AWS and KMS.** Nothing is provisioned and every store is in-memory, so a restart loses
+   every mandate, hold and queued charge. `DynamoMandateStore`, `DynamoAuditLog`, `SqsQueue`
+   and `KmsSigner` are all already written behind the ports — this is provisioning and wiring,
+   not new code. **KMS matters beyond the prize:** the registrar and settler keys currently sit
+   in gitignored `.env` files, which contradicts "no private key material anywhere else".
+4. **Card rail wiring.** `StraitsXCardRail` is built and tested against the real sandbox
+   shapes but nothing passes it to `build_rail`. See the rail's own docstring first — its
+   enforcement is weaker than the contract's, and that has to be said out loud.
+
+### Gotchas found the hard way
+
+- **Avalanche's public RPC suggests a priority fee of ~1e-9 gwei.** A transaction priced from
+  it is accepted, returns a hash, and is then never mined — a failure with no error in it.
+  `transactions.py` floors the tip at 1 gwei for this reason. Do not remove the floor.
+- **The public RPC serves stale reads immediately after a transaction.** An allowance read
+  right after `approve()` returned zero when the receipt clearly showed it succeeded. Re-read
+  before believing a balance, and trust the receipt over a follow-up call.
+- **Moving the domain in `config/verifier.toml` does nothing unless it is passed in.**
+  `build_rail` takes a `domain` argument; omit it and everything silently uses
+  `Eip712Domain()` defaults. Mandates still verify, because both services read the same
+  default — so nothing looks broken while the digest recorded onchain means nothing.
+  `scripts/demo_onchain.py` now refuses to start on a mismatch.
+- **The committed fixtures do NOT depend on `config/verifier.toml`.** They are generated from
+  `Eip712Domain()` defaults, so a cutover is a one-line config change and not a coordinated
+  fixture regeneration. `tests/test_config.py` pins this.
+
 ## What we are building
 
 A trust rail for agent payments. The layer that lets an AI agent spend real money on someone's
@@ -130,15 +197,27 @@ time plus intent verification before settlement.
 7. **Payment executes on the x402 rail**, XSGD on Avalanche C-Chain. Tx hash and outcome
    written to DynamoDB and CloudWatch.
 
-### Open decision, resolve before building step 6/7
-Steps 6 and 7 name two different rails. Pick one primary path and make the other explicit:
-- **Card primary:** mint the StraitsX one-time card, settle through it. x402 is then the
-  handshake that carries payment terms, not the settlement rail. Simpler, but weaker Avalanche
-  story.
-- **x402 primary:** settle XSGD directly onchain via the contract. The StraitsX card becomes
-  the fallback adapter for merchants who take cards but have not integrated.
-Default to **x402 primary** unless the onchain leg is failing by end of day 1. It is what the
-Avalanche prize rewards and what makes the revert demo possible.
+### RESOLVED: x402 primary, card as the second rail
+Steps 6 and 7 named two different rails and only one can settle a given purchase — doing both
+would pay twice. Resolved as **x402 primary**: `MandateRegistry.spend` moves XSGD directly, and
+the StraitsX card is the fallback adapter for merchants who take cards but have not integrated.
+
+What the investigation turned up, because it is not what the original note assumed:
+
+- **The card is bought with onchain XSGD**, not from a fiat balance. The card API answers with
+  an HTTP 402 and you pay it by signing an EIP-3009 `TransferWithAuthorization`. Both rails
+  therefore move XSGD on C-Chain and both satisfy the track rule.
+- **The difference is enforcement, not currency.** `spend()` re-checks cap, merchant, expiry
+  and one-time consumption in Solidity. EIP-3009 has no contract in the middle — whoever holds
+  the signing key can authorise any transfer up to that wallet's balance. On the card rail the
+  mandate is enforced by the Verifier and nothing else.
+- **Mitigation is operational:** the card rail signs from a wallet funded to one mandate's cap,
+  so a compromise costs what is in that wallet. Never point it at a wallet holding more.
+- **The card rail cannot complete a purchase on its own.** It converts XSGD into a Visa card;
+  using that card at a merchant is browser-driven checkout, which is out of scope. Show it as
+  a second adapter with a real `settlement_tx`, not as a completed purchase.
+- Card values are **whole SGD, S$5 to S$30** — the demo's S$4.20 toothbrush is below the
+  minimum, and the rail refuses rather than rounding up.
 
 ## Services
 
@@ -243,7 +322,12 @@ the registered payout address regardless of what a listing claims.
 - Settlement calls `spend(mandateId, merchant, amount, basketHash)`. Contract validates and
   transfers XSGD, or reverts.
 - The ledger is the source of truth for money. Nothing offchain can move funds or override a revert.
-- Deploy and test on Fuji testnet FIRST. Only touch mainnet once the flow works.
+- ~~Deploy and test on Fuji testnet FIRST.~~ **Fuji was skipped.** The flow was proven first
+  against a local Hardhat node (16 integration tests, real transfers, real reverts decoded),
+  and mainnet gas turned out to cost a fraction of a cent, so a mistake was cheap. Fuji still
+  has one thing local does not: Hardhat refuses to broadcast a doomed transaction, so the
+  **revert demo cannot be rehearsed locally**. That now has to happen on mainnet, where it is
+  more compelling anyway.
 
 ## Offchain vs onchain split
 
@@ -352,13 +436,13 @@ Tailwind. Build after the mandate check and settlement work.
 
 ## Build order
 
-1. Mandate Service plus Verifier (core, do first)
-2. Stub marketplace with `GET /listings` and `POST /purchase`
-3. MandateRegistry contract on Fuji testnet
-4. Settlement leg with real XSGD (riskiest for time, sort wallet and gas early)
-5. Browser Agent plus Evaluator Agent
-6. Agent Registry (stub is acceptable)
-7. Frontend
+1. ~~Mandate Service plus Verifier~~ **done**
+2. ~~Stub marketplace with `GET /listings` and `POST /purchase`~~ **done**
+3. ~~MandateRegistry contract~~ **done — deployed to mainnet, Fuji skipped**
+4. ~~Settlement leg with real XSGD~~ **done — 4.20 XSGD settled on C-Chain**
+5. ~~Browser Agent plus Evaluator Agent~~ **done**
+6. ~~Agent Registry~~ **done — seeded in memory, which CLAUDE.md permits**
+7. **Frontend — the only item never started.** See "Where we are" at the top.
 
 Cuts if time runs out, in order: stub marketplace UI, B2B coda, Agent Registry beyond a static
 map, WAF, Settlement Worker as its own service (fold into Verifier and go synchronous).
@@ -419,7 +503,9 @@ heads-up.
   check now and a very bad surprise during mainnet cutover. If it disagrees, tell A; do not
   edit the constant. Amounts cross as integer minor units, unbound merchant/basket encode as
   `address(0)`/`bytes32(0)`, and the EIP-712 domain in `config/verifier.toml` must match the
-  deployed contract. **Confirm XSGD really is 6 decimals against the live token.**
+  deployed contract. ~~Confirm XSGD really is 6 decimals against the live token.~~ **Done:
+  6 decimals, checked against mainnet XSGD and independently against a live card-API quote.**
+  `Deployment.assert_decimals_match` now enforces it at load time.
 
 ### D. Platform, frontend, and pitch
 - AWS: Fargate/App Runner, API Gateway, WAF, SQS, DynamoDB, KMS, IAM roles

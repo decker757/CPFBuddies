@@ -33,6 +33,16 @@ class MandateStatusConflict(TrustRailError):
     """
 
 
+class MandateRegistrationFailed(TrustRailError):
+    """A mandate was signed and stored but could not be put on the ledger.
+
+    Raised rather than swallowed because the alternative is worse: a mandate
+    that looks live offchain and reverts `MandateNotFound` at settlement, long
+    after the buyer was told their purchase was under way. The offchain record
+    is left MINTED and simply expires.
+    """
+
+
 class IllegalBinding(TrustRailError):
     """A `bind` tried to do something other than fill in an empty field.
 

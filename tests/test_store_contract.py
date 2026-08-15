@@ -277,55 +277,42 @@ def test_audit_entries_are_scoped_to_their_mandate(stores: dict[str, Any]) -> No
 # --- review holds ----------------------------------------------------------
 
 
-def _hold(
-    verdict: Any, *, charge_id: str = "0x" + "c1" * 32, deadline: datetime
-) -> ReviewHold:
-    return ReviewHold(
-        charge_id=charge_id,
-        mandate_id=verdict.mandate_id,
-        verdict=verdict,
-        held_at=DEMO_NOW,
-        deadline=deadline,
-    )
-
-
 @pytest.fixture
 def held_verdict(build: ScenarioBuilder, verifier: Any) -> Any:
     return verifier.verify(build.request())
 
 
-def test_a_hold_round_trips(stores: dict[str, Any], held_verdict: Any) -> None:
-    hold = _hold(held_verdict, deadline=DEMO_NOW + timedelta(minutes=5))
+@pytest.fixture
+def hold(build: ScenarioBuilder, held_verdict: Any) -> ReviewHold:
+    return build.hold(held_verdict, deadline=DEMO_NOW + timedelta(minutes=5))
 
+
+def test_a_hold_round_trips(stores: dict[str, Any], hold: ReviewHold) -> None:
     stores["holds"].put(hold)
 
     assert stores["holds"].get(hold.charge_id) == hold
 
 
 def test_pending_holds_are_listed_while_they_are_still_waiting(
-    stores: dict[str, Any], held_verdict: Any
+    stores: dict[str, Any], hold: ReviewHold
 ) -> None:
-    hold = _hold(held_verdict, deadline=DEMO_NOW + timedelta(minutes=5))
     stores["holds"].put(hold)
 
     assert stores["holds"].list_pending(DEMO_NOW) == [hold]
 
 
 def test_a_hold_past_its_deadline_is_no_longer_pending(
-    stores: dict[str, Any], held_verdict: Any
+    stores: dict[str, Any], hold: ReviewHold
 ) -> None:
     """No sweeper, no indefinite queue: the deadline is enforced on read."""
-    stores["holds"].put(
-        _hold(held_verdict, deadline=DEMO_NOW + timedelta(minutes=5))
-    )
+    stores["holds"].put(hold)
 
     assert stores["holds"].list_pending(DEMO_NOW + timedelta(minutes=6)) == []
 
 
 def test_a_resolved_hold_is_no_longer_pending(
-    stores: dict[str, Any], held_verdict: Any
+    stores: dict[str, Any], hold: ReviewHold
 ) -> None:
-    hold = _hold(held_verdict, deadline=DEMO_NOW + timedelta(minutes=5))
     stores["holds"].put(hold)
 
     stores["holds"].put(hold.resolve(outcome=ReviewOutcome.KILLED, by="ernest"))

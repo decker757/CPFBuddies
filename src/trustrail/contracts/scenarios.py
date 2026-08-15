@@ -47,7 +47,8 @@ from trustrail.models.mandate import (
 from trustrail.models.money import Currency, Money
 from trustrail.models.primitives import to_bytes
 from trustrail.models.registry import AgentRecord, AgentRole, MerchantRecord
-from trustrail.models.verdict import Decision, ReasonCode
+from trustrail.models.review import ReviewHold
+from trustrail.models.verdict import Decision, ReasonCode, Verdict
 from trustrail.models.verification import VerificationRequest
 from trustrail.signing.crypto import sign_digest
 from trustrail.signing.eip712 import Eip712Domain, mandate_digest
@@ -185,6 +186,27 @@ class ScenarioBuilder:
             role=AgentRole.EVALUATOR,
             address=EVALUATOR_ADDRESS,
         )
+
+    def hold(self, verdict: Verdict, **overrides: Any) -> ReviewHold:
+        """A charge paused for a human, consistent with the verdict that paused it.
+
+        The charge and the evidence are derived from the same verdict rather
+        than passed separately, because a hold whose parts disagree is exactly
+        what `ReviewHold` refuses to be built from.
+        """
+        charge = overrides.pop("charge", None) or self.charge(
+            charge_id=verdict.charge_id, mandate_id=verdict.mandate_id
+        )
+        fields: dict[str, Any] = {
+            "charge_id": charge.charge_id,
+            "mandate_id": charge.mandate_id,
+            "verdict": verdict,
+            "charge": charge,
+            "evaluation": self.sign_evaluation(self.evaluation(charge)),
+            "held_at": DEMO_NOW,
+            "deadline": DEMO_NOW + DEMO_WINDOW,
+        }
+        return ReviewHold(**(fields | overrides))
 
     # --- the known-good request ------------------------------------------
 

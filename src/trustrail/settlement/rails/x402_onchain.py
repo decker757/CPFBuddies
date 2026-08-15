@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import logging
 
+from trustrail.models.audit import SettlementOutcome
 from trustrail.models.money import Currency
 from trustrail.settlement.chain.explorer import transaction_url
 from trustrail.settlement.chain.registry_client import MandateRegistryClient
-from trustrail.models.audit import SettlementOutcome
+from trustrail.settlement.chain.token import TokenClient
 from trustrail.settlement.models import SettlementInstruction, SettlementReceipt
 
 logger = logging.getLogger(__name__)
@@ -33,9 +34,24 @@ class UnsettleableCurrency(ValueError):
 class X402OnchainRail:
     """Settles by calling ``MandateRegistry.spend`` and reporting what the chain did."""
 
-    def __init__(self, client: MandateRegistryClient, chain_id: int) -> None:
+    def __init__(
+        self,
+        client: MandateRegistryClient,
+        chain_id: int,
+        token: TokenClient | None = None,
+    ) -> None:
+        """`token` enables the funding preflight; omit it to go straight to the chain.
+
+        The preflight is two `eth_call`s and it exists because the failure it
+        catches is otherwise illegible. `spend` ends in `transferFrom`, so an
+        unfunded buyer -- or one who never granted the allowance -- produces a
+        bare ERC-20 revert with no custom error, which decodes to "unknown
+        revert" on the dashboard. That is the single most likely thing to go
+        wrong on demo day and the least informative message to see when it does.
+        """
         self._client = client
         self._chain_id = chain_id
+        self._token = token
 
     @property
     def name(self) -> str:
@@ -47,6 +63,18 @@ class X402OnchainRail:
                 f"{instruction.amount.currency} cannot settle onchain; only XSGD can"
             )
 
+        unfunded = self._funding_problem(instruction)
+        if unfunded is not None:
+            # REFUSED, not ERROR: the rail is working and the money is not
+            # there. Retrying on a timer will not conjure a balance, and the
+            # buyer has to act.
+            return SettlementReceipt(
+                mandate_id=instruction.mandate_id,
+                rail=self.name,
+                status=SettlementOutcome.REFUSED,
+                detail=unfunded,
+            )
+
         try:
             result = self._client.spend(
                 mandate_id=instruction.mandate_id,
@@ -56,7 +84,7 @@ class X402OnchainRail:
                 amount=instruction.amount.minor_units,
                 basket_hash=instruction.basket_hash,
             )
-        except Exception as error:  # noqa: BLE001 - RPC and nonce faults are retryable
+        except Exception as error:
             logger.exception("settlement transport failed for %s", instruction.mandate_id)
             return SettlementReceipt(
                 mandate_id=instruction.mandate_id,
@@ -91,3 +119,31 @@ class X402OnchainRail:
             reason_code=revert.reason_code if revert else None,
             detail=str(revert) if revert else "reverted",
         )
+
+    def _funding_problem(self, instruction: SettlementInstruction) -> str | None:
+        """Why `transferFrom` would fail on the buyer's side, in plain words.
+
+        None means the buyer is good for it. This checks the principal, not the
+        settler: the settler pays gas, the principal pays the merchant.
+        """
+        if self._token is None:
+            return None
+
+        needed = instruction.amount.minor_units
+        principal = instruction.principal
+
+        balance = self._token.balance_of(principal)
+        if balance < needed:
+            return (
+                f"principal {principal} holds {balance} of the {needed} minor "
+                f"units required; top up the wallet"
+            )
+
+        allowance = self._token.allowance(principal, self._client.address)
+        if allowance < needed:
+            return (
+                f"principal {principal} has approved MandateRegistry for "
+                f"{allowance} of the {needed} minor units required; the buyer "
+                f"must call approve() on the token"
+            )
+        return None

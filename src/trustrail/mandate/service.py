@@ -26,7 +26,14 @@ from trustrail.models.mandate import (
 from trustrail.models.money import Money
 from trustrail.models.primitives import ZERO_HASH, Timestamp, new_hex32, to_bytes
 from trustrail.models.verdict import Verdict
-from trustrail.ports import AuditLog, Clock, KillSwitchStore, MandateStore, Signer
+from trustrail.ports import (
+    AuditLog,
+    Clock,
+    KillSwitchStore,
+    MandateRegistrar,
+    MandateStore,
+    Signer,
+)
 from trustrail.signing.eip712 import Eip712Domain, mandate_digest
 
 #: Statuses a mandate can still move on from. Anything else is terminal.
@@ -45,13 +52,22 @@ class MandateService:
         audit: AuditLog,
         domain: Eip712Domain | None = None,
         clock: Clock | None = None,
+        registrar: MandateRegistrar | None = None,
     ) -> None:
+        """`registrar` puts mandates on the ledger; omit it to run entirely offchain.
+
+        Omitting it is what the unit tests and the offline demo do. It is not a
+        mode a deployment should ever run in: without the contract, the cap and
+        the expiry are enforced only by our own services, which is precisely
+        the trust we tell people they do not have to extend to us.
+        """
         self._signer = signer
         self._store = store
         self._kill_switch = kill_switch
         self._audit = audit
         self._domain = domain or Eip712Domain()
         self._clock = clock or SystemClock()
+        self._registrar = registrar
 
     @property
     def issuer_address(self) -> str:
@@ -66,6 +82,7 @@ class MandateService:
         max_amount: Money,
         intent: str,
         ttl: timedelta,
+        agent_address: str | None = None,
     ) -> MandateRecord:
         """Issue a mandate for a budget and an intent.
 
@@ -90,12 +107,20 @@ class MandateService:
             created_at=now,
             updated_at=now,
         )
+        # Local first: `save_new` claims the nonce and rejects a duplicate id,
+        # both of which are cheap. Spending gas to register a mandate that the
+        # store is about to refuse would be the wrong order.
         self._store.save_new(record)
+        tx_hash = self._register_onchain(record, agent_address)
         self._log(
             record,
             AuditEventType.MANDATE_MINTED,
             actor=agent_id,
-            summary=f"minted for up to {max_amount}, expiring {mandate.expires_at.isoformat()}",
+            summary=(
+                f"minted for up to {max_amount}, expiring "
+                f"{mandate.expires_at.isoformat()}"
+                + (f", registered onchain in {tx_hash}" if tx_hash else "")
+            ),
         )
         return record
 
@@ -133,14 +158,22 @@ class MandateService:
         return updated
 
     def revoke(self, mandate_id: str, *, actor: str, reason: str) -> MandateRecord:
-        """Kill one mandate. Revocation is a deterministic FAIL thereafter."""
-        return self._transition(
+        """Kill one mandate. Revocation is a deterministic FAIL thereafter.
+
+        Revoked offchain first, then onchain. The offchain record is what the
+        Verifier reads, so it is what stops the next charge; the onchain
+        revocation is what stops anyone who bypasses us entirely.
+        """
+        record = self._transition(
             mandate_id,
             to=MandateStatus.REVOKED,
             event=AuditEventType.MANDATE_REVOKED,
             actor=actor,
             summary=f"revoked: {reason}",
         )
+        if self._registrar is not None:
+            self._registrar.revoke(mandate_id)
+        return record
 
     def consume(self, mandate_id: str, *, actor: str) -> MandateRecord:
         """Spend a mandate, exactly once.
@@ -206,6 +239,31 @@ class MandateService:
             actor="verifier",
             summary=f"{verdict.decision}: {reasons}",
             verdict=verdict,
+        )
+
+    def _register_onchain(
+        self, record: MandateRecord, agent_address: str | None
+    ) -> str | None:
+        """Put the mandate on the ledger, if this deployment has one.
+
+        The contract records the agent as an *address*, but `Mandate.agent_id`
+        is a name and the Agent Registry is the thing that maps one to the
+        other. This service does not consult the registry — that would make the
+        one service allowed to sign also depend on another — so the caller
+        passes the address it already looked up. Falling back to the principal
+        keeps the contract's non-zero requirement satisfied when nobody did,
+        and the offchain audit log carries the agent id either way.
+        """
+        if self._registrar is None:
+            return None
+        mandate = record.signed.mandate
+        return self._registrar.register(
+            mandate_id=mandate.mandate_id,
+            principal=mandate.principal,
+            agent_address=agent_address or mandate.principal,
+            cap_minor_units=mandate.max_amount.minor_units,
+            expires_at=mandate.expires_at,
+            digest=record.signed.digest,
         )
 
     def _sign(self, mandate: Mandate) -> SignedMandate:

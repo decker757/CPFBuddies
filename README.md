@@ -36,7 +36,55 @@ cd onchain && npm run deploy:local               # terminal 2
 Run the rail locally — a generated issuer key, everything in memory:
 
 ```bash
-.venv/bin/uvicorn --factory trustrail.app:create_demo_app
+.venv/bin/uvicorn --factory trustrail.app:create_demo_app       # mandates + verifier only
+.venv/bin/uvicorn --factory app.rail:demo_app                   # the whole path, agents included
+```
+
+The second one is the offline end-to-end path: stub marketplace, Browser Agent,
+Evaluator, Verifier and settlement queue in one process, with the merchant and
+both evaluator ids already registered. Nothing touches a chain, so the queue
+fills and no money moves. Post an intent to it:
+
+```bash
+curl -s localhost:8000/purchases -H 'content-type: application/json' -d '{
+  "principal": "0xabababababababababababababababababababab",
+  "agent_id": "browser-agent-1",
+  "intent": "toothbrush under $5",
+  "max_amount": {"currency": "XSGD", "amount": "5.00"}
+}' | jq '.verdict.decision, .verdict.reason_codes'
+```
+
+## Settling for real
+
+To watch XSGD actually move, run it against a chain:
+
+```bash
+cd onchain && npx hardhat node        # terminal 1
+cd onchain && npm run deploy:local    # terminal 2
+.venv/bin/python scripts/demo_onchain.py --fund
+```
+
+`--fund` mints MockXSGD to the buyer and approves the registry — the one-time
+setup a real buyer does from their own wallet. Then walk the demo:
+
+| `--sku` | Verdict | What the chain does |
+| --- | --- | --- |
+| `TB-SOFT-2PK` | PASS | `spend()` transfers 4.20 XSGD to the merchant |
+| `TB-INJECTION` | FAIL | no transaction is attempted |
+| `GIFT-SUBSTITUTE` | FAIL | no transaction is attempted |
+| `TB-SUSPICIOUS` | REVIEW | held; add `--approve` and it settles 0.50 XSGD |
+
+The buyer keeps custody throughout. `MandateRegistry` never holds funds — it
+calls `transferFrom(principal, merchant, amount)` against the allowance, so
+money goes straight from the buyer's wallet to the merchant's.
+
+The mandate is registered onchain **at mint**, before a product is chosen, so
+it is publicly verifiable from the moment the human approved it. That costs a
+transaction per mint, including mints that go on to fail; the alternative would
+have put REGISTRAR_ROLE and SETTLER_ROLE in the same hands.
+
+```bash
+.venv/bin/python -m pytest -m integration   # 16 tests, needs the node above
 ```
 
 ## What is here
@@ -46,6 +94,8 @@ Run the rail locally — a generated issuer key, everything in memory:
 | `src/trustrail/models/` | The wire contract. Strict Pydantic models, unexpected fields refused. |
 | `src/trustrail/mandate/` | Mint, bind, revoke, consume, kill switch. The only thing that signs. |
 | `src/trustrail/verifier/` | The decision function. PASS, REVIEW or FAIL with reason codes. |
+| `src/trustrail/orchestrator/` | The composite services: Purchase and Onboarding. |
+| `src/trustrail/registry/` | Merchant and Agent registries — `GET /merchants` and the evaluator lookup. |
 | `src/trustrail/signing/` | EIP-712 digests, secp256k1, the KMS adapter. |
 | `src/trustrail/stores/` | In-memory and DynamoDB implementations of the same ports. |
 | `src/trustrail/ports.py` | The five seams between this package and the world. |
@@ -132,33 +182,122 @@ needs the address.
 
 ## Known gaps
 
-- **`verifying_contract` in the EIP-712 domain is still the zero address.** The
-  MandateRegistry now exists, but pointing the domain at a deployed address
-  changes every mandate digest, so the committed fixtures would have to be
-  regenerated in the same commit. Do it as one coordinated change at Fuji
-  cutover, not before.
+- **`verifying_contract` in the EIP-712 domain is still the zero address.**
+  Point it at the deployed MandateRegistry at cutover. This is a **one-line
+  config change and nothing more** — an earlier version of this file claimed it
+  forced a fixture regeneration, which is wrong and `tests/test_config.py` now
+  pins the correction: the fixtures are generated under `Eip712Domain()`'s
+  defaults, not from `config/verifier.toml`, so a deployment's domain does not
+  move them.
+
+  The risk that *is* real: the Mandate Service signs under a domain and the
+  Verifier checks under one, and they are configured separately. Move one and
+  not the other and every mandate fails as `MANDATE_DIGEST_MISMATCH` — which
+  reads like tampering, not like a config error. Wire both from the same place.
 - **The revert demo needs Fuji, not a local node.** Hardhat simulates and
   refuses to broadcast a doomed transaction, so there is no hash to open on an
   explorer. Public RPC mines it and it reverts with a receipt. Rehearse
   CLAUDE.md demo step 7 against Fuji.
-- **XSGD is not deployed on Fuji**, so testnet uses `MockXSGD`. The token
-  address is a deploy parameter; mainnet cutover sets `XSGD_ADDRESS`. The
-  6-decimal assumption is now checked at load time against the deployed token —
-  `Deployment.assert_decimals_match` raises rather than settling a wrong number.
-- **The StraitsX card rail is a local fake.** No credentials yet; the protocol
-  is the deliverable and the MCP call is a TODO in one method.
+- **There *is* a testnet XSGD on Fuji**, at
+  `0xd769410dc8772695a7f55a304d2125320a65c2a5` — it is what the StraitsX card
+  sandbox charges against. The deploy script still defaults to `MockXSGD`;
+  setting `XSGD_ADDRESS` to the real testnet token would let both rails settle
+  the same asset and is a better rehearsal for mainnet. Worth doing at Fuji
+  cutover. **6 decimals is now confirmed** against a live quote — the card API
+  priced a S$5 card at `5000000` minor units — which closes the question
+  CLAUDE.md asked track C to verify.
 - **`SqsQueue`, `DynamoAuditLog` and `KmsSigner` are written but unwired.**
-  Workstream D owns provisioning.
+  Workstream D owns provisioning. The settlement queue in `app.rail` is the
+  in-memory one, and the worker is drained by calling `Rail.settle_pending()`
+  rather than polling in its own process.
+- **The buyer's allowance is a manual step.** `MandateRegistry.spend` pulls
+  from the principal's own wallet, so a buyer who has not called `approve()` on
+  the token cannot transact. `scripts/demo_onchain.py --fund` does it for the
+  demo; a real product does it once from the buyer's wallet. The rail checks
+  balance and allowance before spending and refuses with a readable reason
+  rather than an opaque ERC-20 revert.
 - **Both of B's evaluator ids must be registered** in the Agent Registry:
   `evaluator-rules-v1` when the model is unreachable and
   `evaluator-hybrid-nova-v1` when it is not. Register only one and a degraded
   evaluator produces evidence the Verifier rejects as unregistered.
+  `OnboardingOrchestrator.register_evaluator` takes both ids at once for that
+  reason, and `app.rail` seeds both.
+- **The registries are seeded, not persisted.** `InMemoryMerchantDirectory` and
+  `InMemoryAgentDirectory` are rebuilt at boot from the Onboarding
+  Orchestrator. That matches CLAUDE.md ("can be seeded by script for the demo")
+  and the ports are protocols, so a DynamoDB implementation drops in without
+  the orchestrator noticing — but a restart currently forgets every merchant
+  registered over HTTP.
+- **The Browser Agent does not sign its output.** It holds a registry identity
+  so the audit trail names it, but only the Evaluator signs. That is enough for
+  the threat we claim to stop — a compromised Browser Agent cannot forge a
+  clean risk score, because it cannot produce the Evaluator's signature — and
+  short of CLAUDE.md's "every agent signs its output".
 - **`backend/uv.lock` is stale.** B was built with `uv`; the repo installs with
   pip. Either regenerate it or delete it — a lockfile nobody runs is a trap.
 - **B's Bedrock model is optional.** Without credentials the Evaluator degrades
   to rules only and flags `EVALUATOR_UNAVAILABLE`, so the suite and the demo run
   offline.
-- **`SettlementProfile` defaults to Fuji with a zero token address.** Wire it
-  from `onchain/deployments/<network>.json` before the 402 quotes a real asset.
-- Review holds have a model, a store and deadline arithmetic here; creating and
-  resolving them is the Purchase Orchestrator's job (workstream D).
+- **The stub marketplace's 402 now follows the deployment.**
+  `SettlementProfile.from_deployment` reads chain and asset from
+  `onchain/deployments/<network>.json`, and `app.rail` wires it whenever a
+  chain is present. The defaults still describe nothing deployed — a zero asset
+  address — on purpose: the offline suite needs a marketplace with no chain
+  behind it, and an obviously-empty default is safer than a plausible one.
+- **An approved REVIEW settles on a verdict that still says REVIEW.** That is
+  deliberate — see below — but it means anything reading `verdict.decision` to
+  decide "did this settle" is wrong. Read `SettlementRequest.settleable`.
+
+## Two rails, and why they enforce differently
+
+Both settle XSGD on Avalanche C-Chain. The card is *bought* onchain — the card
+API answers with an HTTP 402 and we pay it — so this is not a fiat fallback.
+What differs is what stands between a compromised worker and the money.
+
+| | `x402-onchain` | `straitsx-card` |
+| --- | --- | --- |
+| Mechanism | `MandateRegistry.spend` over an allowance | EIP-3009 `TransferWithAuthorization` |
+| Cap enforced by | **the contract**, in Solidity, every spend | our Verifier, and nothing else |
+| Basket binding | yes | no |
+| A compromised settler can | only call `spend()`, which re-checks everything | authorise any transfer up to the wallet balance |
+
+That second column is CLAUDE.md's coverage gradient, stated honestly. There is
+no contract in the EIP-3009 path — an authorisation is a signed instruction to
+move tokens, and the key that signs it is not constrained by a mandate.
+
+**The mitigation is operational, not cryptographic.** Point the card rail's
+signer at a wallet funded to one mandate's cap. A compromise then costs what is
+in that wallet rather than the buyer's balance. Never point it at a wallet
+holding more than you would accept losing.
+
+`MandateRegistry` remains the primary rail for exactly this reason.
+
+Note also: **the card API's minimum is S$5** and it issues whole dollars only,
+so the demo's S$4.20 toothbrush cannot go over this rail. The rail refuses
+rather than rounding up, because rounding up would spend eighty cents the buyer
+never approved.
+
+No MCP client is needed to use it. The MCP server is an agent-facing wrapper
+that hands out the URL and the steps; the payment itself is plain HTTPS.
+
+## How an approved REVIEW settles
+
+Worth knowing before you read `orchestrator/purchase.py`, because the obvious
+implementation is the wrong one.
+
+Approving a held charge binds the mandate to the merchant and basket, re-signs
+it, and sends it back through the Verifier. The re-run is not ceremony: it is
+what catches a mandate that expired, was revoked, or whose merchant was
+suspended while the human was deciding. But the risk score has not changed, so
+the Verifier says REVIEW again — correctly. It is still a middling score.
+
+So the verdict that travels to the settlement queue says REVIEW, and a
+`HumanApproval` travels with it naming who overrode it. The alternative —
+relabelling it PASS on the way out — would make the queue and the audit log
+disagree about what the Verifier actually said, at exactly the point where the
+audit log is the thing we ask people to trust.
+
+`SettlementRequest.settleable` is the gate: PASS settles, REVIEW settles only
+with an approval attached, and **FAIL never settles no matter what is
+attached**. A human may answer a judgement call. A human may not click past a
+forged signature or an over-cap amount.

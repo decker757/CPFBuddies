@@ -9,15 +9,19 @@ should drag an AWS SDK in just by importing this package.
 """
 
 from trustrail.stores.memory import (
+    InMemoryAgentDirectory,
     InMemoryAuditLog,
     InMemoryKillSwitchStore,
     InMemoryMandateStore,
+    InMemoryMerchantDirectory,
     InMemoryReviewHoldStore,
 )
 
 __all__ = [
+    "InMemoryAgentDirectory",
     "InMemoryAuditLog",
     "InMemoryKillSwitchStore",
     "InMemoryMandateStore",
+    "InMemoryMerchantDirectory",
     "InMemoryReviewHoldStore",
 ]

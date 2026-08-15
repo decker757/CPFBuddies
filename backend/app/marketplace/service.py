@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 
+from trustrail.models.money import Currency, Money
+from trustrail.settlement.chain.deployment import Deployment
+from trustrail.signing.crypto import hash_bytes
+from trustrail.x402.terms import SCHEME, PaymentTerms
+
 from app.contracts import (
     Listing,
     ListingsResponse,
@@ -17,13 +22,16 @@ from app.contracts import (
 from app.integrity import calculate_basket_hash
 from app.marketplace.catalog import CATALOG
 from app.marketplace.ports import Clock, QuoteIdGenerator, QuoteRepository
-from trustrail.models.money import Currency, Money
-from trustrail.signing.crypto import hash_bytes
-from trustrail.x402.terms import SCHEME, PaymentTerms
 
+#: What this marketplace *publishes* about itself in every listings response.
+#: The Merchant Registry holds its own copy of this address, agreed at
+#: onboarding, and the Verifier requires the two to be equal. They are stated
+#: separately on purpose: deriving one from the other would leave the payout
+#: check comparing a value with itself, and a scam seller inside a registered
+#: platform could then redirect funds by editing a listing payload.
 MERCHANT = Merchant(
     id="mrc_stub_sg",
-    address="0x1111111111111111111111111111111111111111",
+    address="0x5DC6eBd1745c4c58f73D846952E5d4a8858763cc",
     name="CPF Buddies Demo Marketplace",
 )
 
@@ -37,13 +45,37 @@ class SettlementProfile:
     """Which chain and which token a 402 from this marketplace refers to.
 
     Carried in the payment terms rather than assumed by the client, so the same merchant can
-    quote against Fuji today and mainnet tomorrow without the buyer guessing. Defaults are
-    Fuji; a deployment overrides them from C's `onchain/deployments/<network>.json`.
+    quote against Fuji today and mainnet tomorrow without the buyer guessing.
+
+    The defaults describe *nothing deployed*: a zero asset address is not a token, and quoting
+    it would be a merchant asking to be paid in a currency that does not exist. Use
+    :meth:`from_deployment` for anything that settles. The defaults exist so the offline suite
+    can run a marketplace with no chain at all, and they are deliberately obvious rather than
+    plausible -- a wrong-but-believable default is how you settle on the wrong network.
     """
 
     chain_id: int = 43113
     network: str = "avalanche-fuji"
     asset: str = "0x0000000000000000000000000000000000000000"
+
+    @classmethod
+    def from_deployment(cls, deployment: Deployment) -> SettlementProfile:
+        """Quote against whatever was actually deployed.
+
+        `onchain/deployments/<network>.json` is the single source of truth for addresses, and
+        reading it here is what stops the marketplace advertising one chain while the
+        settlement worker spends on another.
+        """
+        return cls(
+            chain_id=deployment.chain_id,
+            network=deployment.network,
+            asset=deployment.settlement_token,
+        )
+
+    @property
+    def is_configured(self) -> bool:
+        """False while the asset is the zero address, i.e. nothing real to quote."""
+        return int(self.asset, 16) != 0
 
 
 class MarketplaceError(Exception):
