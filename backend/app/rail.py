@@ -40,21 +40,14 @@ from trustrail.models.money import Money
 from trustrail.models.registry import AgentRole
 from trustrail.orchestrator.onboarding import OnboardingOrchestrator
 from trustrail.orchestrator.purchase import PurchaseOrchestrator
+from trustrail.ports import AuditLog, MerchantDirectory
 from trustrail.settlement.models import SettlementReceipt
-from trustrail.settlement.queue.memory import InMemorySettlementQueue
+from trustrail.settlement.queue.base import SettlementQueue
 from trustrail.settlement.rails.base import SettlementRail
 from trustrail.settlement.wiring import ChainWiring, build_chain, check_deployment
 from trustrail.settlement.worker import SettlementWorker
 from trustrail.signing.eip712 import Eip712Domain
 from trustrail.signing.local import LocalSigner
-from trustrail.stores.memory import (
-    InMemoryAgentDirectory,
-    InMemoryAuditLog,
-    InMemoryKillSwitchStore,
-    InMemoryMandateStore,
-    InMemoryMerchantDirectory,
-    InMemoryReviewHoldStore,
-)
 from trustrail.verifier.config import VerifierConfig
 from trustrail.verifier.service import VerifierService
 
@@ -65,6 +58,8 @@ from app.contracts import ListingsResponse
 from app.main import build_marketplace_service
 from app.marketplace.routes import create_marketplace_router
 from app.marketplace.service import MERCHANT, MarketplaceService, SettlementProfile
+from app.resources import Resources
+from app.resources import in_memory as in_memory_resources
 
 BROWSER_AGENT_ID = "browser-agent-1"
 
@@ -122,9 +117,12 @@ class Rail:
     orchestrator: PurchaseOrchestrator
     onboarding: OnboardingOrchestrator
     marketplace: MarketplaceService
-    merchants: InMemoryMerchantDirectory
-    queue: InMemorySettlementQueue
-    audit: InMemoryAuditLog
+    # Ports, not the in-memory classes. These were concrete until the AWS
+    # wiring landed, and naming a concrete type here is how a test grows a
+    # dependency on `InMemoryAuditLog` that a deployment cannot satisfy.
+    merchants: MerchantDirectory
+    queue: SettlementQueue
+    audit: AuditLog
     evaluator_signer: LocalSigner
     worker: SettlementWorker | None = None
     chain: ChainWiring | None = None
@@ -152,6 +150,7 @@ def build_rail(
     issuer: LocalSigner | None = None,
     settlement_rail: SettlementRail | None = None,
     cors_origins: list[str] | None = None,
+    resources: Resources | None = None,
 ) -> Rail:
     """Assemble the whole rail, with the stub marketplace in the same process.
 
@@ -182,17 +181,21 @@ def build_rail(
     issuer = issuer or LocalSigner.generate()
     evaluator_signer = LocalSigner.generate()
 
-    mandate_store = InMemoryMandateStore()
-    audit = InMemoryAuditLog()
-    merchants = InMemoryMerchantDirectory()
-    agents = InMemoryAgentDirectory()
-    holds = InMemoryReviewHoldStore()
-    queue = InMemorySettlementQueue()
+    # Memory unless a caller says otherwise. Tests and the offline demo pass
+    # nothing and get exactly what they got before this parameter existed;
+    # `chain_app` passes `Resources.from_environment()`.
+    resources = resources or in_memory_resources()
+    mandate_store = resources.mandates
+    audit = resources.audit
+    merchants = resources.merchants
+    agents = resources.agents
+    holds = resources.holds
+    queue = resources.queue
 
     mandates = MandateService(
         signer=issuer,
         store=mandate_store,
-        kill_switch=InMemoryKillSwitchStore(),
+        kill_switch=resources.kill_switch,
         audit=audit,
         domain=domain,
         registrar=chain.registrar if chain else None,
@@ -292,8 +295,8 @@ def _settlement_lifespan(worker: SettlementWorker):
 
 
 def _worker(
-    queue: InMemorySettlementQueue,
-    audit: InMemoryAuditLog,
+    queue: SettlementQueue,
+    audit: AuditLog,
     rail: SettlementRail | None,
 ) -> SettlementWorker | None:
     """A worker, if there is a rail for it to settle on.
@@ -394,6 +397,11 @@ def chain_app() -> FastAPI:
         preferred_sku=_preferred_sku_from_env(),
         evaluator_model=_evaluator_model_from_env(),
         cors_origins=_cors_origins_from_env(),
+        # Memory unless TRUSTRAIL_PERSISTENCE=aws. Only this factory reads it:
+        # `demo_app` and the tests stay in-memory whatever the environment says,
+        # so a developer with a live AWS profile cannot accidentally point a
+        # test run at real tables.
+        resources=Resources.from_environment(),
     ).app
 
 
