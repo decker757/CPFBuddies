@@ -6,7 +6,7 @@ import pytest
 
 from app.agents.browser import BrowserAgent
 from app.agents.evaluator import EvaluatorAgent
-from app.contracts import ListingsResponse
+from app.contracts import ListingsResponse, xsgd
 from app.integrity import calculate_basket_hash
 from app.marketplace.catalog import CATALOG
 from app.marketplace.service import MERCHANT
@@ -39,14 +39,14 @@ def test_complete_browser_to_evaluator_scenarios(
     candidate = asyncio.run(
         BrowserAgent([ScenarioMerchant()]).find_candidate(
             intent="toothbrush under $5",
-            max_price=Decimal("5"),
+            max_price=xsgd("5"),
             preferred_sku=sku,
         )
     )
     output = EvaluatorAgent().evaluate(
         listing=candidate.listing,
         intent="toothbrush under $5",
-        max_amount=Decimal("5"),
+        max_amount=xsgd("5"),
     )
     band = "PASS" if output.risk_score <= 3 else "REVIEW" if output.risk_score <= 7 else "FAIL"
     assert output.risk_score == expected_score

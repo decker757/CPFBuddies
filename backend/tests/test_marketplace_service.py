@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.contracts import ListingsResponse, PurchaseRequest
+from app.contracts import ListingsResponse, PurchaseRequest, xsgd
 from app.marketplace.repository import InMemoryQuoteRepository
 from app.marketplace.service import (
     ExpiredQuote,

@@ -11,6 +11,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import BaseModel, ConfigDict
 
 from app.agents.model import EvaluationModelError
+from trustrail.models.money import Money
+
 from app.contracts import Listing, ModelAssessment
 
 DEFAULT_MODEL_ID = "apac.amazon.nova-lite-v1:0"
@@ -94,11 +96,13 @@ class BedrockEvaluatorModel:
         )
         return cls(client, model_id=resolved_model_id)
 
-    def assess(self, *, listing: Listing, intent: str, max_amount: Decimal) -> ModelAssessment:
+    def assess(self, *, listing: Listing, intent: str, max_amount: Money) -> ModelAssessment:
         untrusted_payload = json.dumps(
             {
                 "buyer_intent": intent,
-                "maximum_amount_xsgd": format(max_amount, "f"),
+                # Money already stores an exact decimal string; formatting it again would
+                # be a second place that decides how an amount is spelled.
+                "maximum_amount_xsgd": max_amount.amount,
                 "untrusted_listing": listing.model_dump(mode="json"),
             },
             sort_keys=True,

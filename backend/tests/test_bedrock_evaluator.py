@@ -11,7 +11,7 @@ from app.agents.bedrock import (
 )
 from app.agents.evaluator import EvaluatorAgent
 from app.agents.model import EvaluationModelError
-from app.contracts import ModelAssessment
+from app.contracts import ModelAssessment, xsgd
 from app.marketplace.catalog import CATALOG
 
 
@@ -68,7 +68,7 @@ def test_bedrock_adapter_uses_structured_output_and_untrusted_data_boundary() ->
     output = BedrockEvaluatorModel(client).assess(
         listing=listing,
         intent="toothbrush under $5",
-        max_amount=Decimal("5"),
+        max_amount=xsgd("5"),
     )
 
     assert output == ModelAssessment(
@@ -104,7 +104,7 @@ def test_bedrock_adapter_maps_model_signals_to_deterministic_policy() -> None:
     )
 
     output = BedrockEvaluatorModel(client).assess(
-        listing=CATALOG[1], intent="toothbrush", max_amount=Decimal("5")
+        listing=CATALOG[1], intent="toothbrush", max_amount=xsgd("5")
     )
 
     assert output.risk_score == 9
@@ -119,7 +119,7 @@ def test_bedrock_adapter_rejects_invalid_model_response() -> None:
     client = FakeBedrockClient({"intent_match": True})
     with pytest.raises(EvaluationModelError):
         BedrockEvaluatorModel(client).assess(
-            listing=CATALOG[0], intent="toothbrush", max_amount=Decimal("5")
+            listing=CATALOG[0], intent="toothbrush", max_amount=xsgd("5")
         )
 
 
@@ -152,7 +152,7 @@ def test_hybrid_evaluator_conservatively_merges_model_injection_signal() -> None
         reason_codes=["PROMPT_INJECTION"],
     )
     output = EvaluatorAgent(model=FakeEvaluationModel(assessment)).evaluate(
-        listing=CATALOG[0], intent="toothbrush under $5", max_amount=Decimal("5")
+        listing=CATALOG[0], intent="toothbrush under $5", max_amount=xsgd("5")
     )
     assert output.evaluator_id == "evaluator-hybrid-nova-v1"
     assert output.risk_score == 10
@@ -162,7 +162,7 @@ def test_hybrid_evaluator_conservatively_merges_model_injection_signal() -> None
 
 def test_hybrid_evaluator_routes_model_outage_to_review() -> None:
     output = EvaluatorAgent(model=FakeEvaluationModel(fail=True)).evaluate(
-        listing=CATALOG[0], intent="toothbrush under $5", max_amount=Decimal("5")
+        listing=CATALOG[0], intent="toothbrush under $5", max_amount=xsgd("5")
     )
     assert output.risk_score == 7
     assert {reason.code for reason in output.reasons} == {"EVALUATOR_UNAVAILABLE"}

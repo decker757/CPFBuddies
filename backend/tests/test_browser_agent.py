@@ -5,7 +5,7 @@ from decimal import Decimal
 import httpx
 
 from app.agents.browser import BrowserAgent, NoCandidateFound
-from app.contracts import ListingsResponse
+from app.contracts import ListingsResponse, xsgd
 from app.integrity import calculate_basket_hash
 from app.marketplace.catalog import CATALOG
 from app.marketplace.service import MERCHANT
@@ -45,13 +45,13 @@ def test_browser_preserves_quote_binding_in_candidate() -> None:
     client = FakeListingsClient(items)
     candidate = asyncio.run(
         BrowserAgent([client]).find_candidate(
-            intent="toothbrush", max_price=Decimal("5"), preferred_sku="TB-INJECTION"
+            intent="toothbrush", max_price=xsgd("5"), preferred_sku="TB-INJECTION"
         )
     )
     assert candidate.quote_id == "q_test"
     assert candidate.listing.sku == "TB-INJECTION"
     assert candidate.basket_hash == calculate_basket_hash(items)
-    assert client.last_query == {"q": "toothbrush", "max_price": Decimal("5"), "currency": "XSGD"}
+    assert client.last_query == {"q": "toothbrush", "max_price": xsgd("5"), "currency": "XSGD"}
 
 
 def test_browser_fails_closed_when_preferred_candidate_is_absent() -> None:
@@ -59,7 +59,7 @@ def test_browser_fails_closed_when_preferred_candidate_is_absent() -> None:
     try:
         asyncio.run(
             BrowserAgent([client]).find_candidate(
-                intent="toothbrush", max_price=Decimal("5"), preferred_sku="missing"
+                intent="toothbrush", max_price=xsgd("5"), preferred_sku="missing"
             )
         )
     except NoCandidateFound:
@@ -72,7 +72,7 @@ def test_browser_isolates_failed_merchants() -> None:
     healthy = FakeListingsClient(list(CATALOG[:1]))
     candidate = asyncio.run(
         BrowserAgent([FailingListingsClient(), healthy]).find_candidate(
-            intent="toothbrush", max_price=Decimal("5")
+            intent="toothbrush", max_price=xsgd("5")
         )
     )
     assert candidate.listing.sku == "TB-SOFT-2PK"
@@ -87,7 +87,7 @@ def test_browser_rejects_mismatched_basket_hash() -> None:
     try:
         asyncio.run(
             BrowserAgent([TamperedClient(list(CATALOG[:1]))]).find_candidate(
-                intent="toothbrush", max_price=Decimal("5")
+                intent="toothbrush", max_price=xsgd("5")
             )
         )
     except NoCandidateFound:
@@ -100,7 +100,7 @@ def test_browser_times_out_slow_merchant_but_uses_healthy_one() -> None:
     healthy = FakeListingsClient(list(CATALOG[:1]))
     candidate = asyncio.run(
         BrowserAgent([SlowListingsClient(), healthy], request_timeout=0.001).find_candidate(
-            intent="toothbrush", max_price=Decimal("5")
+            intent="toothbrush", max_price=xsgd("5")
         )
     )
     assert candidate.listing.sku == "TB-SOFT-2PK"
@@ -110,7 +110,7 @@ def test_browser_selection_is_deterministic_across_merchants() -> None:
     expensive = FakeListingsClient(list(CATALOG[:1]))
     cheap = FakeListingsClient(list(CATALOG[3:4]))
     candidate = asyncio.run(
-        BrowserAgent([expensive, cheap]).find_candidate(intent="toothbrush", max_price=Decimal("5"))
+        BrowserAgent([expensive, cheap]).find_candidate(intent="toothbrush", max_price=xsgd("5"))
     )
     assert candidate.listing.sku == "TB-SUSPICIOUS"
 
@@ -118,7 +118,7 @@ def test_browser_selection_is_deterministic_across_merchants() -> None:
 def test_browser_rejects_invalid_intent_before_calling_merchant() -> None:
     client = FakeListingsClient(list(CATALOG[:1]))
     try:
-        asyncio.run(BrowserAgent([client]).find_candidate(intent=" ", max_price=Decimal("5")))
+        asyncio.run(BrowserAgent([client]).find_candidate(intent=" ", max_price=xsgd("5")))
     except ValueError:
         pass
     else:

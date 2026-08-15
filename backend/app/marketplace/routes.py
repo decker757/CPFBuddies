@@ -11,6 +11,8 @@ from app.contracts import (
     PurchaseReceipt,
     PurchaseRequest,
 )
+from trustrail.x402.terms import PAYMENT_HEADER, decode_proof
+
 from app.marketplace.service import (
     ExpiredQuote,
     MarketplaceService,
@@ -46,10 +48,24 @@ def create_marketplace_router(marketplace: MarketplaceService) -> APIRouter:
     )
     def purchase(
         request: PurchaseRequest,
-        x_payment_proof: str | None = Header(default=None, min_length=1, max_length=500),
+        x_payment: str | None = Header(
+            default=None, alias=PAYMENT_HEADER, min_length=1, max_length=4_000
+        ),
     ) -> PurchaseReceipt | JSONResponse:
+        # The header carries workstream C's PaymentProof, base64 of canonical JSON. Decoding it
+        # here means a malformed or truncated proof is a 400 rather than a receipt issued
+        # against something we never read.
+        reference: str | None = None
+        if x_payment is not None:
+            try:
+                reference = decode_proof(x_payment).reference
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_payment_proof"
+                ) from error
+
         try:
-            result = marketplace.purchase(request, x_payment_proof)
+            result = marketplace.purchase(request, reference)
         except UnknownQuote as error:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error.code) from error
         except ExpiredQuote as error:

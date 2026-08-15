@@ -5,8 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cpf-buddies-backend"
 version = "0.1.0"
-requires-python = ">=3.12"
+# 3.11 is the floor the rest of the repo is on; nothing here needs 3.12.
+requires-python = ">=3.11"
 dependencies = [
+  # The wire contract. B is a separate deployable -- the agents are untrusted and
+  # nothing downstream believes them -- but it speaks the same types as A and C.
+  "trustrail",
   "boto3>=1.42,<2",
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
@@ -40,13 +44,13 @@ show_missing = true
 skip_covered = true
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 plugins = ["pydantic.mypy"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]

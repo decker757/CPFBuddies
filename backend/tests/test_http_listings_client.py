@@ -1,3 +1,4 @@
+from app.contracts import xsgd
 import asyncio
 from datetime import UTC, datetime, timedelta
 
@@ -29,7 +30,7 @@ def fetch_payload(payload: dict) -> ListingsResponse:
     async def fetch() -> ListingsResponse:
         async with httpx.AsyncClient(transport=transport) as client:
             adapter = HttpListingsClient("https://merchant.example", client=client)
-            return await adapter.fetch_listings(q="toothbrush", max_price=5)
+            return await adapter.fetch_listings(q="toothbrush", max_price=xsgd("5"))
 
     return asyncio.run(fetch())
 

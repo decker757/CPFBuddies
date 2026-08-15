@@ -68,7 +68,7 @@ class EvaluatorAgent:
         self._security_events = security_events or LoggingSecurityEventSink()
         self._model = model
 
-    def evaluate(self, *, listing: Listing, intent: str, max_amount: Decimal) -> EvaluatorOutput:
+    def evaluate(self, *, listing: Listing, intent: str, max_amount: Money) -> EvaluatorOutput:
         output = self._evaluate_rules(listing=listing, intent=intent, max_amount=max_amount)
         if self._model is not None:
             try:
@@ -84,11 +84,11 @@ class EvaluatorAgent:
         return output
 
     def _evaluate_rules(
-        self, *, listing: Listing, intent: str, max_amount: Decimal
+        self, *, listing: Listing, intent: str, max_amount: Money
     ) -> EvaluatorOutput:
         reason_codes: list[RiskReasonCode] = []
         intent_match = self._matches_intent(listing, intent)
-        price_within_cap = listing.price.amount <= max_amount
+        price_within_cap = listing.price.minor_units <= max_amount.minor_units
         injection_detected = self._has_injection(listing)
 
         if not intent_match:
@@ -98,7 +98,8 @@ class EvaluatorAgent:
         if injection_detected:
             reason_codes.append(RiskReasonCode.PROMPT_INJECTION)
 
-        suspicious_price = listing.price.amount <= max_amount * Decimal("0.20")
+        # 20% of cap, as integers: no rounding slack, and no float anywhere near a price.
+        suspicious_price = listing.price.minor_units * 5 <= max_amount.minor_units
         new_or_unrated = listing.seller_account_age_days < 30 or listing.seller_rating_count < 5
         if suspicious_price:
             reason_codes.append(RiskReasonCode.SUSPICIOUSLY_LOW_PRICE)

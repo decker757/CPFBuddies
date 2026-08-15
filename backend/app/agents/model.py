@@ -1,6 +1,8 @@
 from decimal import Decimal
 from typing import Protocol
 
+from trustrail.models.money import Money
+
 from app.contracts import Listing, ModelAssessment
 
 
@@ -11,4 +13,4 @@ class EvaluationModelError(RuntimeError):
 class EvaluationModel(Protocol):
     model_id: str
 
-    def assess(self, *, listing: Listing, intent: str, max_amount: Decimal) -> ModelAssessment: ...
+    def assess(self, *, listing: Listing, intent: str, max_amount: Money) -> ModelAssessment: ...

@@ -1,7 +1,11 @@
-"""Shared Workstream B contracts.
+"""Workstream B's own shapes: listings, quotes, receipts and agent findings.
 
-These models are the integration boundary with the mandate, verifier, settlement,
-and orchestration workstreams. They deliberately reject undeclared input fields.
+Anything that crosses into another workstream uses that workstream's definition rather than a
+local copy -- `Money`, addresses and hashes come from A's wire contract, and the 402 payment
+terms come from C's x402 module. B is a separate deployable because the agents are untrusted,
+but a separate deployable is not a reason to redefine the vocabulary.
+
+Models here reject undeclared input fields: the listing payloads are attacker-controlled.
 """
 
 from __future__ import annotations
@@ -16,30 +20,32 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
-    field_serializer,
     field_validator,
 )
+
+from trustrail.models.audit import ReferenceText
+from trustrail.models.money import Currency, Money
+from trustrail.models.primitives import Hex32, HexAddress
+from trustrail.x402.terms import PaymentTerms
 
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Description = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4_000)
 ]
 Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
-Hash = Annotated[str, StringConstraints(pattern=r"^0x[a-f0-9]{64}$")]
-Address = Annotated[str, StringConstraints(pattern=r"^0x[a-fA-F0-9]{40}$")]
+#: Aliases onto the wire contract. A lowercases both at parse time, so equality comparisons
+#: downstream -- payout address binding, basket binding -- need no case handling.
+Hash = Hex32
+Address = HexAddress
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Money(StrictModel):
-    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
-    currency: Literal["XSGD"] = "XSGD"
-
-    @field_serializer("amount")
-    def serialize_amount(self, value: Decimal) -> str:
-        return format(value, "f")
+def xsgd(amount: Decimal | str) -> Money:
+    """XSGD money, spelled once. Everything B prices is in XSGD by track rule."""
+    return Money(currency=Currency.XSGD, amount=str(amount))
 
 
 class Merchant(StrictModel):
@@ -83,20 +89,6 @@ class PurchaseRequest(StrictModel):
     signed_request: ShortText
 
 
-class PaymentTerms(StrictModel):
-    scheme: Literal["x402"] = "x402"
-    network: Literal["avalanche-c-chain"] = "avalanche-c-chain"
-    asset: Literal["XSGD"] = "XSGD"
-    amount: Decimal
-    payout_address: Address
-    quote_id: Identifier
-    basket_hash: Hash
-
-    @field_serializer("amount")
-    def serialize_amount(self, value: Decimal) -> str:
-        return format(value, "f")
-
-
 class PaymentRequired(StrictModel):
     error: Literal["payment_required"] = "payment_required"
     payment_terms: PaymentTerms
@@ -120,7 +112,9 @@ class PurchaseReceipt(StrictModel):
     quantity: int
     amount: Money
     basket_hash: Hash
-    payment_proof: ShortText
+    #: The rail's reference for the settlement -- a transaction hash on the onchain
+    #: rail. Wider than ShortText because a 0x-prefixed 32-byte hash is 66 characters.
+    payment_proof: ReferenceText
 
 
 class CandidateSelection(StrictModel):
