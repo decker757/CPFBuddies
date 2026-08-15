@@ -1,0 +1,877 @@
+{
+  "CandidateSelection": {
+    "$defs": {
+      "Listing": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "enum": [
+              "in_stock",
+              "out_of_stock"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/Money"
+          },
+          "seller_account_age_days": {
+            "maximum": 36500,
+            "minimum": 0,
+            "title": "Seller Account Age Days",
+            "type": "integer"
+          },
+          "seller_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Seller Id",
+            "type": "string"
+          },
+          "seller_rating": {
+            "anyOf": [
+              {
+                "maximum": 5,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Seller Rating"
+          },
+          "seller_rating_count": {
+            "maximum": 1000000000,
+            "minimum": 0,
+            "title": "Seller Rating Count",
+            "type": "integer"
+          },
+          "sku": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Sku",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sku",
+          "title",
+          "description",
+          "price",
+          "availability",
+          "seller_id",
+          "seller_account_age_days",
+          "seller_rating_count"
+        ],
+        "title": "Listing",
+        "type": "object"
+      },
+      "Merchant": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "title": "Address",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "address",
+          "name"
+        ],
+        "title": "Merchant",
+        "type": "object"
+      },
+      "Money": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,19}0*$)\\d{0,12}\\.\\d{0,6}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "const": "XSGD",
+            "default": "XSGD",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "Money",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "basket_hash": {
+        "pattern": "^0x[a-f0-9]{64}$",
+        "title": "Basket Hash",
+        "type": "string"
+      },
+      "expires_at": {
+        "format": "date-time",
+        "title": "Expires At",
+        "type": "string"
+      },
+      "listing": {
+        "$ref": "#/$defs/Listing"
+      },
+      "merchant": {
+        "$ref": "#/$defs/Merchant"
+      },
+      "quote_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Quote Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "quote_id",
+      "expires_at",
+      "merchant",
+      "listing",
+      "basket_hash"
+    ],
+    "title": "CandidateSelection",
+    "type": "object"
+  },
+  "EvaluatorOutput": {
+    "$defs": {
+      "RiskReason": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/RiskReasonCode"
+          },
+          "detail": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "RiskReason",
+        "type": "object"
+      },
+      "RiskReasonCode": {
+        "enum": [
+          "INTENT_MISMATCH",
+          "PRICE_OVER_CAP",
+          "PROMPT_INJECTION",
+          "PRODUCT_SUBSTITUTION",
+          "SUSPICIOUSLY_LOW_PRICE",
+          "NEW_OR_UNRATED_SELLER",
+          "EVALUATOR_UNAVAILABLE"
+        ],
+        "title": "RiskReasonCode",
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "evaluator_id": {
+        "default": "evaluator-v1",
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Evaluator Id",
+        "type": "string"
+      },
+      "injection_detected": {
+        "title": "Injection Detected",
+        "type": "boolean"
+      },
+      "intent_match": {
+        "title": "Intent Match",
+        "type": "boolean"
+      },
+      "price_within_cap": {
+        "title": "Price Within Cap",
+        "type": "boolean"
+      },
+      "reasons": {
+        "items": {
+          "$ref": "#/$defs/RiskReason"
+        },
+        "maxItems": 10,
+        "title": "Reasons",
+        "type": "array"
+      },
+      "risk_score": {
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Risk Score",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "risk_score",
+      "intent_match",
+      "price_within_cap",
+      "injection_detected",
+      "reasons"
+    ],
+    "title": "EvaluatorOutput",
+    "type": "object"
+  },
+  "Listing": {
+    "$defs": {
+      "Money": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,19}0*$)\\d{0,12}\\.\\d{0,6}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "const": "XSGD",
+            "default": "XSGD",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "Money",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "availability": {
+        "enum": [
+          "in_stock",
+          "out_of_stock"
+        ],
+        "title": "Availability",
+        "type": "string"
+      },
+      "description": {
+        "maxLength": 4000,
+        "minLength": 1,
+        "title": "Description",
+        "type": "string"
+      },
+      "price": {
+        "$ref": "#/$defs/Money"
+      },
+      "seller_account_age_days": {
+        "maximum": 36500,
+        "minimum": 0,
+        "title": "Seller Account Age Days",
+        "type": "integer"
+      },
+      "seller_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Seller Id",
+        "type": "string"
+      },
+      "seller_rating": {
+        "anyOf": [
+          {
+            "maximum": 5,
+            "minimum": 0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Seller Rating"
+      },
+      "seller_rating_count": {
+        "maximum": 1000000000,
+        "minimum": 0,
+        "title": "Seller Rating Count",
+        "type": "integer"
+      },
+      "sku": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Sku",
+        "type": "string"
+      },
+      "title": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": [
+      "sku",
+      "title",
+      "description",
+      "price",
+      "availability",
+      "seller_id",
+      "seller_account_age_days",
+      "seller_rating_count"
+    ],
+    "title": "Listing",
+    "type": "object"
+  },
+  "ListingsResponse": {
+    "$defs": {
+      "Listing": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "enum": [
+              "in_stock",
+              "out_of_stock"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/Money"
+          },
+          "seller_account_age_days": {
+            "maximum": 36500,
+            "minimum": 0,
+            "title": "Seller Account Age Days",
+            "type": "integer"
+          },
+          "seller_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Seller Id",
+            "type": "string"
+          },
+          "seller_rating": {
+            "anyOf": [
+              {
+                "maximum": 5,
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Seller Rating"
+          },
+          "seller_rating_count": {
+            "maximum": 1000000000,
+            "minimum": 0,
+            "title": "Seller Rating Count",
+            "type": "integer"
+          },
+          "sku": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Sku",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sku",
+          "title",
+          "description",
+          "price",
+          "availability",
+          "seller_id",
+          "seller_account_age_days",
+          "seller_rating_count"
+        ],
+        "title": "Listing",
+        "type": "object"
+      },
+      "Merchant": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "title": "Address",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "address",
+          "name"
+        ],
+        "title": "Merchant",
+        "type": "object"
+      },
+      "Money": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,19}0*$)\\d{0,12}\\.\\d{0,6}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "const": "XSGD",
+            "default": "XSGD",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "Money",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "basket_hash": {
+        "pattern": "^0x[a-f0-9]{64}$",
+        "title": "Basket Hash",
+        "type": "string"
+      },
+      "expires_at": {
+        "format": "date-time",
+        "title": "Expires At",
+        "type": "string"
+      },
+      "items": {
+        "items": {
+          "$ref": "#/$defs/Listing"
+        },
+        "maxItems": 100,
+        "title": "Items",
+        "type": "array"
+      },
+      "merchant": {
+        "$ref": "#/$defs/Merchant"
+      },
+      "quote_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Quote Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "quote_id",
+      "expires_at",
+      "merchant",
+      "items",
+      "basket_hash"
+    ],
+    "title": "ListingsResponse",
+    "type": "object"
+  },
+  "MarketplaceErrorResponse": {
+    "additionalProperties": false,
+    "properties": {
+      "detail": {
+        "enum": [
+          "unknown_quote",
+          "expired_quote",
+          "sku_not_in_quote",
+          "out_of_stock",
+          "quote_already_consumed",
+          "quote_integrity_failed"
+        ],
+        "title": "Detail",
+        "type": "string"
+      }
+    },
+    "required": [
+      "detail"
+    ],
+    "title": "MarketplaceErrorResponse",
+    "type": "object"
+  },
+  "ModelAssessment": {
+    "additionalProperties": false,
+    "properties": {
+      "injection_detected": {
+        "title": "Injection Detected",
+        "type": "boolean"
+      },
+      "intent_match": {
+        "title": "Intent Match",
+        "type": "boolean"
+      },
+      "reason_codes": {
+        "items": {
+          "enum": [
+            "INTENT_MISMATCH",
+            "PROMPT_INJECTION",
+            "PRODUCT_SUBSTITUTION"
+          ],
+          "type": "string"
+        },
+        "maxItems": 3,
+        "title": "Reason Codes",
+        "type": "array"
+      },
+      "risk_score": {
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Risk Score",
+        "type": "integer"
+      },
+      "substitution_suspected": {
+        "title": "Substitution Suspected",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "intent_match",
+      "injection_detected",
+      "substitution_suspected",
+      "risk_score",
+      "reason_codes"
+    ],
+    "title": "ModelAssessment",
+    "type": "object"
+  },
+  "PaymentRequired": {
+    "$defs": {
+      "PaymentTerms": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "asset": {
+            "const": "XSGD",
+            "default": "XSGD",
+            "title": "Asset",
+            "type": "string"
+          },
+          "basket_hash": {
+            "pattern": "^0x[a-f0-9]{64}$",
+            "title": "Basket Hash",
+            "type": "string"
+          },
+          "network": {
+            "const": "avalanche-c-chain",
+            "default": "avalanche-c-chain",
+            "title": "Network",
+            "type": "string"
+          },
+          "payout_address": {
+            "pattern": "^0x[a-fA-F0-9]{40}$",
+            "title": "Payout Address",
+            "type": "string"
+          },
+          "quote_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Quote Id",
+            "type": "string"
+          },
+          "scheme": {
+            "const": "x402",
+            "default": "x402",
+            "title": "Scheme",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "payout_address",
+          "quote_id",
+          "basket_hash"
+        ],
+        "title": "PaymentTerms",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "error": {
+        "const": "payment_required",
+        "default": "payment_required",
+        "title": "Error",
+        "type": "string"
+      },
+      "payment_terms": {
+        "$ref": "#/$defs/PaymentTerms"
+      }
+    },
+    "required": [
+      "payment_terms"
+    ],
+    "title": "PaymentRequired",
+    "type": "object"
+  },
+  "PaymentTerms": {
+    "additionalProperties": false,
+    "properties": {
+      "amount": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "type": "string"
+          }
+        ],
+        "title": "Amount"
+      },
+      "asset": {
+        "const": "XSGD",
+        "default": "XSGD",
+        "title": "Asset",
+        "type": "string"
+      },
+      "basket_hash": {
+        "pattern": "^0x[a-f0-9]{64}$",
+        "title": "Basket Hash",
+        "type": "string"
+      },
+      "network": {
+        "const": "avalanche-c-chain",
+        "default": "avalanche-c-chain",
+        "title": "Network",
+        "type": "string"
+      },
+      "payout_address": {
+        "pattern": "^0x[a-fA-F0-9]{40}$",
+        "title": "Payout Address",
+        "type": "string"
+      },
+      "quote_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Quote Id",
+        "type": "string"
+      },
+      "scheme": {
+        "const": "x402",
+        "default": "x402",
+        "title": "Scheme",
+        "type": "string"
+      }
+    },
+    "required": [
+      "amount",
+      "payout_address",
+      "quote_id",
+      "basket_hash"
+    ],
+    "title": "PaymentTerms",
+    "type": "object"
+  },
+  "PurchaseReceipt": {
+    "$defs": {
+      "Money": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,19}0*$)\\d{0,12}\\.\\d{0,6}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "const": "XSGD",
+            "default": "XSGD",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "Money",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "amount": {
+        "$ref": "#/$defs/Money"
+      },
+      "basket_hash": {
+        "pattern": "^0x[a-f0-9]{64}$",
+        "title": "Basket Hash",
+        "type": "string"
+      },
+      "payment_proof": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Payment Proof",
+        "type": "string"
+      },
+      "quantity": {
+        "title": "Quantity",
+        "type": "integer"
+      },
+      "quote_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Quote Id",
+        "type": "string"
+      },
+      "sku": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Sku",
+        "type": "string"
+      },
+      "status": {
+        "const": "settled",
+        "default": "settled",
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "required": [
+      "quote_id",
+      "sku",
+      "quantity",
+      "amount",
+      "basket_hash",
+      "payment_proof"
+    ],
+    "title": "PurchaseReceipt",
+    "type": "object"
+  },
+  "PurchaseRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "mandate_credential": {
+        "additionalProperties": true,
+        "title": "Mandate Credential",
+        "type": "object"
+      },
+      "quantity": {
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Quantity",
+        "type": "integer"
+      },
+      "quote_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Quote Id",
+        "type": "string"
+      },
+      "signed_request": {
+        "maxLength": 200,
+        "minLength": 1,
+        "title": "Signed Request",
+        "type": "string"
+      },
+      "sku": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Sku",
+        "type": "string"
+      }
+    },
+    "required": [
+      "sku",
+      "quantity",
+      "quote_id",
+      "mandate_credential",
+      "signed_request"
+    ],
+    "title": "PurchaseRequest",
+    "type": "object"
+  }
+}
