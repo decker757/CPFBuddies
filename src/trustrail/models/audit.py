@@ -14,6 +14,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from trustrail.models.evaluation import EvaluatorOutput
 from trustrail.models.primitives import Hex32, ShortText, Timestamp
 from trustrail.models.verdict import ReasonCode, Verdict
 
@@ -30,6 +31,12 @@ class AuditEventType(StrEnum):
     MANDATE_REVOKED = "MANDATE_REVOKED"
     MANDATE_CONSUMED = "MANDATE_CONSUMED"
     KILL_SWITCH_SET = "KILL_SWITCH_SET"
+    # The agents' work, written by the Purchase Orchestrator. CLAUDE.md gives the
+    # Agent Registry the job of recording "which agent produced which decision",
+    # and these are where that lands: a compromised Browser Agent's choice and a
+    # signed Evaluator finding are both attributable after the fact.
+    CANDIDATE_SELECTED = "CANDIDATE_SELECTED"
+    EVALUATION_COMPLETE = "EVALUATION_COMPLETE"
     VERDICT_ISSUED = "VERDICT_ISSUED"
     # Settlement, written by workstream C once a PASS has been acted on.
     SETTLEMENT_SETTLED = "SETTLEMENT_SETTLED"
@@ -92,6 +99,14 @@ class AuditEntry(BaseModel):
     verdict: Verdict | None = Field(
         default=None,
         description="Present on VERDICT_ISSUED, carrying the full check trace.",
+    )
+    evaluation: EvaluatorOutput | None = Field(
+        default=None,
+        description="Present on EVALUATION_COMPLETE, carrying the risk score, "
+        "flags and the Evaluator's own reasons. The Verdict keeps the score but "
+        "not the reasons, and a REVIEW hold is the only other place they "
+        "surface -- so without this a PASS or a FAIL could never show why the "
+        "Evaluator concluded what it did.",
     )
     settlement: SettlementRecord | None = Field(
         default=None,

@@ -54,6 +54,49 @@ curl -s localhost:8000/purchases -H 'content-type: application/json' -d '{
 }' | jq '.verdict.decision, .verdict.reason_codes'
 ```
 
+Watch the decisions arrive instead of asking for them — this is what the
+dashboard renders, and it stays open:
+
+```bash
+curl -N localhost:8000/audit/stream
+```
+
+To serve the rail **wired to a real chain**, so a frontend can drive a purchase
+that actually settles:
+
+```bash
+TRUSTRAIL_NETWORK=avalanche \
+TRUSTRAIL_RPC_URL=https://api.avax.network/ext/bc/C/rpc \
+TRUSTRAIL_REGISTRAR_KEY=0x... TRUSTRAIL_SETTLER_KEY=0x... \
+.venv/bin/uvicorn --factory app.rail:chain_app
+```
+
+`chain_app` refuses to start if a key does not hold the role the deployment
+granted it, or if the signing domain in `config/verifier.toml` does not name the
+deployed registry — and it reports every such problem at once rather than one
+restart at a time. The domain check is the one worth having: a mismatch does not
+fail at runtime, it just records digests onchain that no contract shares.
+
+Both factories allow `http://localhost:5173` (Vite) to call them. Override with
+`TRUSTRAIL_CORS_ORIGINS`, comma-separated; set it empty to allow nothing.
+
+Both also read `backend/.env` if `python-dotenv` is installed, and a variable
+already set in the shell always wins over the file. The load happens inside the
+factories, not at import, so `build_rail` — which the tests use — never picks up
+a developer's `.env` and starts making network calls.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `TRUSTRAIL_DEMO_SKU` | unset | Pin the Browser Agent to one listing. Needed to reach the PASS beat — see `_preferred_sku_from_env`. |
+| `TRUSTRAIL_EVALUATOR_MODEL` | auto | `bedrock`, or `rules`/`none` to force the deterministic evaluator. Auto uses Bedrock when `AWS_BEARER_TOKEN_BEDROCK` is set. |
+| `TRUSTRAIL_LOG_LEVEL` | `INFO` | Without this configured, nothing below WARNING is printed and every verdict is silently dropped. |
+| `TRUSTRAIL_CORS_ORIGINS` | Vite dev | Comma-separated allowlist. |
+| `AWS_REGION`, `BEDROCK_MODEL_ID` | APAC Nova Lite | Which model the Evaluator calls. |
+
+Every audit entry is also emitted as a structured log line, so the trail and the
+log stream cannot disagree about what happened. FAIL verdicts, revocations and
+the kill switch are WARNING; everything else is INFO.
+
 ## Settling for real
 
 To watch XSGD actually move, run it against a chain:
@@ -96,6 +139,7 @@ have put REGISTRAR_ROLE and SETTLER_ROLE in the same hands.
 | `src/trustrail/verifier/` | The decision function. PASS, REVIEW or FAIL with reason codes. |
 | `src/trustrail/orchestrator/` | The composite services: Purchase and Onboarding. |
 | `src/trustrail/registry/` | Merchant and Agent registries — `GET /merchants` and the evaluator lookup. |
+| `src/trustrail/audit/` | The dashboard feed: `GET /audit` and the `GET /audit/stream` SSE endpoint. |
 | `src/trustrail/signing/` | EIP-712 digests, secp256k1, the KMS adapter. |
 | `src/trustrail/stores/` | In-memory and DynamoDB implementations of the same ports. |
 | `src/trustrail/ports.py` | The five seams between this package and the world. |
@@ -182,15 +226,21 @@ needs the address.
 
 ## Known gaps
 
-- **`verifying_contract` in the EIP-712 domain is still the zero address.**
-  Point it at the deployed MandateRegistry at cutover. This is a **one-line
-  config change and nothing more** — an earlier version of this file claimed it
-  forced a fixture regeneration, which is wrong and `tests/test_config.py` now
-  pins the correction: the fixtures are generated under `Eip712Domain()`'s
-  defaults, not from `config/verifier.toml`, so a deployment's domain does not
-  move them.
+- ~~**`verifying_contract` in the EIP-712 domain is still the zero address.**~~
+  **Done.** `config/verifier.toml` names chain 43114 and the deployed
+  MandateRegistry at `0xdb4050cf…`. It was a one-line change and nothing more —
+  an earlier version of this file claimed it forced a fixture regeneration,
+  which is wrong and `tests/test_config.py` pins the correction: the fixtures
+  are generated under `Eip712Domain()`'s defaults, not from
+  `config/verifier.toml`, so a deployment's domain does not move them.
 
-  The risk that *is* real: the Mandate Service signs under a domain and the
+  **The consequence, which is easy to trip over:** the committed config now
+  describes mainnet, so anything running the preflight — `demo_onchain.py` or
+  `app.rail:chain_app` — refuses to start against a local Hardhat node, whose
+  deployment is chain 31337. That refusal is correct. To work locally, point the
+  `[domain]` table at `onchain/deployments/localhost.json`.
+
+  The risk that remains: the Mandate Service signs under a domain and the
   Verifier checks under one, and they are configured separately. Move one and
   not the other and every mandate fails as `MANDATE_DIGEST_MISMATCH` — which
   reads like tampering, not like a config error. Wire both from the same place.
@@ -208,8 +258,25 @@ needs the address.
   CLAUDE.md asked track C to verify.
 - **`SqsQueue`, `DynamoAuditLog` and `KmsSigner` are written but unwired.**
   Workstream D owns provisioning. The settlement queue in `app.rail` is the
-  in-memory one, and the worker is drained by calling `Rail.settle_pending()`
-  rather than polling in its own process.
+  in-memory one, so it does not survive a restart and cannot be shared between
+  processes.
+
+  The worker itself does run: `build_rail` gives the app a lifespan that polls
+  the queue in a daemon thread for as long as it is serving, so a PASS settles
+  without anyone calling anything. `Rail.settle_pending()` remains for tests and
+  `demo_onchain.py`, which both want to say "and then it settled" at a specific
+  point rather than racing a thread. No settlement rail means no worker and no
+  lifespan, which is the honest offline state: the queue fills and stays full.
+- **`DynamoAuditLog.all_entries` scans the table.** The dashboard feed reads
+  across every mandate and the partition key is the mandate id, so there is no
+  query that answers it. Add a GSI with a constant partition key and
+  `occurred_at_event` as the sort key at provisioning time, and query that
+  instead — the in-memory feed is fine, this is only a problem once the table is
+  real and the dashboard is polling it.
+- **The audit feed has no authentication and no retention limit.** `GET /audit`
+  will return every entry the process has ever recorded, and CLAUDE.md puts no
+  auth on the demo. Both are fine for a demo on one laptop and neither is fine
+  behind a public URL.
 - **The buyer's allowance is a manual step.** `MandateRegistry.spend` pulls
   from the principal's own wallet, so a buyer who has not called `approve()` on
   the token cannot transact. `scripts/demo_onchain.py --fund` does it for the

@@ -63,3 +63,15 @@ def new_hex32() -> str:
 def to_bytes(value: str) -> bytes:
     """Decode a 0x-prefixed hex string into raw bytes."""
     return bytes.fromhex(value.removeprefix("0x"))
+
+
+def clip_text(text: str, limit: int) -> str:
+    """Fit text into a capped field without raising.
+
+    For merchant- and Evaluator-supplied prose on its way into a shorter field:
+    ten Evaluator reasons at 280 characters each is a valid output and five
+    times what an audit summary may hold. Truncating is right where rejecting is
+    not — the structured payload alongside keeps the full text, so nothing is
+    lost, and a merchant cannot fail a purchase by being verbose.
+    """
+    return text if len(text) <= limit else text[: limit - 1] + "…"

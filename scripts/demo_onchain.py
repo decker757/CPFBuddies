@@ -35,12 +35,14 @@ from datetime import timedelta
 from pathlib import Path
 
 from app.contracts import xsgd
-from app.rail import BROWSER_AGENT_ID, build_rail
+from app.rail import BROWSER_AGENT_ID, build_rail, load_environment
 
 from trustrail.models.verdict import Decision
-from trustrail.settlement.wiring import build_chain
+from trustrail.settlement.wiring import build_chain, check_deployment
 from trustrail.signing.local import LocalSigner
 from trustrail.verifier.config import VerifierConfig
+
+logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "verifier.toml"
 
@@ -56,11 +58,15 @@ FUNDING = 1_000_000_000  # minor units minted to the buyer with --fund
 
 def main() -> int:
     args = _parse_args()
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
+    # The same env files the server reads. Without this the script sees only
+    # what the shell exported, so a populated `.env` and a run against Hardhat's
+    # public dev keys look identical until a mainnet transaction fails.
+    load_environment()
 
     registrar = _signer("TRUSTRAIL_REGISTRAR_KEY", HARDHAT["deployer"])
     settler = _signer("TRUSTRAIL_SETTLER_KEY", HARDHAT["deployer"])
-    buyer = _signer("TRUSTRAIL_PRINCIPAL_KEY", HARDHAT["principal"])
+    buyer = _buyer_signer()
 
     chain = build_chain(
         rpc_url=args.rpc,
@@ -71,18 +77,19 @@ def main() -> int:
     if not chain.w3.is_connected():
         return _fail(f"no chain at {args.rpc}. Is 'npx hardhat node' running?")
 
-    problem = _check_roles(chain, registrar, settler)
-    if problem:
-        return _fail(problem)
-
     # The domain comes from the committed config, not from a default. Without
     # this the Mandate Service and Verifier agree with each other but sign
     # under a domain no deployed contract shares, and the cutover in
     # `config/verifier.toml` silently does nothing.
     domain = VerifierConfig.from_toml(CONFIG_PATH).domain
-    problem = _check_domain(chain, domain)
-    if problem:
-        return _fail(problem)
+    problems = check_deployment(
+        chain.deployment,
+        registrar_address=registrar.address,
+        settler_address=settler.address,
+        domain=domain,
+    )
+    if problems:
+        return _fail("; ".join(problems))
 
     _banner(chain, args, buyer, domain)
 
@@ -142,49 +149,35 @@ def _signer(env_var: str, fallback: str) -> LocalSigner:
     return LocalSigner.from_hex(os.environ.get(env_var, fallback))
 
 
-def _check_roles(chain, registrar: LocalSigner, settler: LocalSigner) -> str | None:
-    """Refuse to start if the keys do not hold the roles the deployment granted.
+def _buyer_signer() -> LocalSigner:
+    """The wallet the XSGD is spent from.
 
-    Getting this wrong produces an `AccessControlUnauthorizedAccount` revert
-    several steps later, at mint or at settlement, which is a slow way to learn
-    that the deploy script granted the roles to somebody else.
+    Falls back to `DEPLOYER_PRIVATE_KEY` because on this demo deployment the
+    person who deployed the contract is also the person holding the XSGD, and
+    copying one private key into a second file to say so would mean two places
+    to rotate it and two chances to leak it.
+
+    **The fallback is loud, and it belongs to this script alone.** `chain_app`
+    never reads a buyer key at all -- it does not need one, since `spend()` is
+    the settler's transaction and pulls through an allowance. A deployment where
+    the buyer is the deployer is a demo, not a product: a real principal is a
+    customer, and nothing about that wallet should be reachable from ours.
     """
-    expected_registrar = chain.deployment.registrar.lower()
-    expected_settler = chain.deployment.settler.lower()
-    if registrar.address.lower() != expected_registrar:
-        return (
-            f"registrar key is {registrar.address} but {chain.deployment.network} "
-            f"granted REGISTRAR_ROLE to {expected_registrar}. "
-            f"Set TRUSTRAIL_REGISTRAR_KEY."
-        )
-    if settler.address.lower() != expected_settler:
-        return (
-            f"settler key is {settler.address} but {chain.deployment.network} "
-            f"granted SETTLER_ROLE to {expected_settler}. Set TRUSTRAIL_SETTLER_KEY."
-        )
-    return None
+    explicit = os.environ.get("TRUSTRAIL_PRINCIPAL_KEY")
+    if explicit:
+        return LocalSigner.from_hex(explicit)
 
-
-def _check_domain(chain, domain) -> str | None:
-    """Refuse to run if the signing domain does not name the deployed registry.
-
-    A mismatch here is invisible at runtime — mandates still verify, because the
-    Mandate Service and the Verifier read the same config — but the digest
-    recorded onchain is computed under a domain no contract shares. Better to
-    stop than to produce an audit trail that quietly means nothing.
-    """
-    if domain.chain_id != chain.deployment.chain_id:
-        return (
-            f"config/verifier.toml signs for chain {domain.chain_id} but the "
-            f"deployment is chain {chain.deployment.chain_id}"
+    deployer = os.environ.get("DEPLOYER_PRIVATE_KEY")
+    if deployer:
+        signer = LocalSigner.from_hex(deployer)
+        logger.warning(
+            "TRUSTRAIL_PRINCIPAL_KEY is unset; buying as the deployer %s. "
+            "Fine for a demo, never for a deployment.",
+            signer.address,
         )
-    if domain.verifying_contract.lower() != chain.deployment.mandate_registry.lower():
-        return (
-            f"config/verifier.toml names {domain.verifying_contract} as the "
-            f"verifying contract, but the deployed registry is "
-            f"{chain.deployment.mandate_registry}"
-        )
-    return None
+        return signer
+
+    return LocalSigner.from_hex(HARDHAT["principal"])
 
 
 def _banner(chain, args, buyer: LocalSigner, domain) -> None:

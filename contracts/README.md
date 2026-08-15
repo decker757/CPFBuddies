@@ -66,9 +66,49 @@ matching what the code generates.
   If it is true, there must be no button — a bad signature or an over-cap charge
   is a fact, and letting a human click past it would train them to click past
   everything. A REVIEW is where the human belongs.
+- `failed_deterministically` on `Verdict`, and `approvable` on `ReviewHold`, are
+  **computed: emitted but never accepted.** Send either one back and it is
+  dropped and recomputed, because a caller asserting its own answer to "was this
+  a fact or a threshold" is the one claim this system does not take on trust.
+  Do not re-derive them from `checks` client-side either — that puts a
+  safety rule in two languages and lets them drift.
+  (Both were plain Python properties until 2026-08-16, which meant neither
+  appeared in the JSON at all. A dashboard read `undefined`, took it as falsy,
+  and would have offered a button that clicks past a bad signature. If you are
+  reading a schema generated before that date, this field is missing from it.)
 - `reason_codes` are stable strings, safe to key translations off.
 - `AuditEntry` is the streaming feed. `VERDICT_ISSUED` entries carry the whole
   verdict.
+- The flow arrives as four beats for one purchase, in this order: `MANDATE_MINTED`,
+  `CANDIDATE_SELECTED`, `EVALUATION_COMPLETE`, `VERDICT_ISSUED`. Settlement adds a
+  `SETTLEMENT_*` entry once the worker has run.
+- **`CANDIDATE_SELECTED` and `EVALUATION_COMPLETE` share a timestamp**, because
+  workstream B returns the candidate and the evaluation in one round trip and the
+  orchestrator never sees when either agent finished. Order the feed by arrival,
+  not by `occurred_at`, and stagger the reveal in the UI if you want them to land
+  separately — the log records what was known, not a sequence nobody observed.
+- `EVALUATION_COMPLETE` carries the full `EvaluatorOutput` on `evaluation`: risk
+  score, flags, and the Evaluator's own reasons. Those reasons are **not** on the
+  `Verdict`, and a hold is the only other place they appear, so this is where a
+  PASS or a FAIL gets its "why".
+- Every `summary` is clipped to 500 characters and carries merchant- and
+  LLM-supplied text. Render it as text, never as markup.
+
+#### Reading the feed
+
+- `GET /audit?since=&limit=` is the snapshot, for the dashboard's first paint.
+- `GET /audit/stream` is the live feed: Server-Sent Events, one frame per entry,
+  `event:` set to the event type and `data:` to the whole `AuditEntry` as JSON.
+- **`id:` is a position in the feed, not an `event_id`.** It points *past* the
+  entry it arrives with, so reconnecting from it asks for what comes next. A
+  browser `EventSource` resends it as `Last-Event-ID` by itself and resumes with
+  no rows lost; pass `?since=` to override that after painting from `GET /audit`.
+- **Do not combine `?since=` with a plain `EventSource`.** The URL is fixed for
+  the connection's lifetime and `since` wins over `Last-Event-ID`, so every
+  automatic reconnect would replay from the same point forever. Either pass
+  `since` and reconnect yourself, or omit it and de-duplicate on `id:`.
+- Order the feed by arrival. Do not re-sort by `occurred_at` — entries can share
+  a timestamp, and re-sorting is what makes a cursor skip or repeat rows.
 - The Verifier takes everything in its request body and looks nothing up. The
   Purchase Orchestrator assembles that payload: mandate state, merchant record,
   evaluator record, kill-switch state and `now`.

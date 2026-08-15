@@ -28,6 +28,7 @@ from trustrail.settlement.chain.registrar import ChainMandateRegistrar
 from trustrail.settlement.chain.registry_client import MandateRegistryClient
 from trustrail.settlement.chain.token import TokenClient
 from trustrail.settlement.rails.x402_onchain import X402OnchainRail
+from trustrail.signing.eip712 import Eip712Domain
 
 
 @dataclass(frozen=True)
@@ -86,3 +87,52 @@ def build_chain(
         token=token,
         registry=registry_for_settler,
     )
+
+
+def check_deployment(
+    deployment: Deployment,
+    *,
+    registrar_address: str,
+    settler_address: str,
+    domain: Eip712Domain,
+) -> list[str]:
+    """Every reason this process must not start against this deployment.
+
+    Shared rather than duplicated because both failures are quiet ones, and a
+    second copy that drifts is worse than no copy at all.
+
+    **Roles.** A key that does not hold the role it is being used for produces
+    an `AccessControlUnauthorizedAccount` revert several steps later, at mint or
+    at settlement, which is a slow way to learn the deploy script granted the
+    role to somebody else.
+
+    **Domain.** A mismatch here is invisible at runtime: mandates still verify,
+    because the Mandate Service and the Verifier read the same config, while the
+    digest recorded onchain is computed under a domain no contract shares.
+    Better to refuse than to produce an audit trail that quietly means nothing.
+    """
+    problems = []
+    if registrar_address.lower() != deployment.registrar.lower():
+        problems.append(
+            f"registrar key is {registrar_address} but {deployment.network} "
+            f"granted REGISTRAR_ROLE to {deployment.registrar}. "
+            f"Set TRUSTRAIL_REGISTRAR_KEY."
+        )
+    if settler_address.lower() != deployment.settler.lower():
+        problems.append(
+            f"settler key is {settler_address} but {deployment.network} "
+            f"granted SETTLER_ROLE to {deployment.settler}. "
+            f"Set TRUSTRAIL_SETTLER_KEY."
+        )
+    if domain.chain_id != deployment.chain_id:
+        problems.append(
+            f"the signing domain is for chain {domain.chain_id} but the "
+            f"deployment is chain {deployment.chain_id}"
+        )
+    if domain.verifying_contract.lower() != deployment.mandate_registry.lower():
+        problems.append(
+            f"the signing domain names {domain.verifying_contract} as the "
+            f"verifying contract, but the deployed registry is "
+            f"{deployment.mandate_registry}"
+        )
+    return problems

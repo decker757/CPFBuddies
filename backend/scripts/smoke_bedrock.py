@@ -1,6 +1,5 @@
 """Run the Workstream B scenario matrix against the configured live Bedrock evaluator."""
 
-from decimal import Decimal
 from pathlib import Path
 from typing import NamedTuple
 
@@ -11,7 +10,7 @@ from pydantic import ValidationError
 from app.agents.bedrock import BedrockEvaluatorModel
 from app.agents.evaluator import EvaluatorAgent
 from app.agents.model import EvaluationModelError
-from app.contracts import ModelAssessment, RiskReasonCode
+from app.contracts import ModelAssessment, RiskReasonCode, xsgd
 from app.marketplace.catalog import CATALOG
 
 
@@ -94,7 +93,9 @@ def live_assessment(model: BedrockEvaluatorModel, catalog_index: int) -> ModelAs
     return model.assess(
         listing=CATALOG[catalog_index],
         intent="toothbrush under $5",
-        max_amount=Decimal("5"),
+        # `Money`, not `Decimal`: `assess` reads `max_amount.amount`, so a bare
+        # Decimal raises an AttributeError before the request is ever built.
+        max_amount=xsgd("5.00"),
     )
 
 
@@ -143,7 +144,7 @@ def main() -> None:
         result = EvaluatorAgent(model=ReplayModel(assessment)).evaluate(
             listing=CATALOG[scenario.catalog_index],
             intent="toothbrush under $5",
-            max_amount=Decimal("5"),
+            max_amount=xsgd("5.00"),
         )
         reasons = {reason.code for reason in result.reasons}
         passed = (

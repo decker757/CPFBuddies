@@ -82,6 +82,7 @@ class ScriptedShopper:
         flags: EvaluatorFlags | None = None,
         evaluator_id: str = EVALUATOR_ID,
         key: bytes | None = None,
+        reasons: list[str] | None = None,
     ) -> None:
         self._build = build
         self._candidate = candidate or _candidate()
@@ -94,6 +95,7 @@ class ScriptedShopper:
         )
         self._evaluator_id = evaluator_id
         self._key = key
+        self._reasons = reasons or ["Scripted for a test."]
 
     async def shop(
         self, *, intent: str, max_amount: Money, mandate_id: str
@@ -108,7 +110,7 @@ class ScriptedShopper:
             ),
             risk_score=self._risk_score,
             flags=self._flags,
-            reasons=["Scripted for a test."],
+            reasons=self._reasons,
         )
         signed = (
             self._build.sign_evaluation(evaluation, key=self._key)
@@ -233,6 +235,87 @@ class TestCleanPurchase:
         events = [e.event_type for e in rail["mandates"].history(outcome.mandate.mandate_id)]
         assert "MANDATE_MINTED" in events
         assert "VERDICT_ISSUED" in events
+
+
+class TestAgentWorkOnTheAuditTrail:
+    """The beats the dashboard streams between minting and the verdict.
+
+    CLAUDE.md gives the Agent Registry the job of recording which agent produced
+    which decision. These are where that lands, and they are what lets a
+    dashboard show the rail working rather than a spinner and then an answer.
+    """
+
+    def _history(self, rail, outcome):
+        return rail["mandates"].history(outcome.mandate.mandate_id)
+
+    def test_the_whole_flow_is_on_the_trail_in_order(self, rail, build):
+        outcome = run(rail, ScriptedShopper(build))
+
+        events = [e.event_type for e in self._history(rail, outcome)]
+        assert events == [
+            "MANDATE_MINTED",
+            "CANDIDATE_SELECTED",
+            "EVALUATION_COMPLETE",
+            "VERDICT_ISSUED",
+        ]
+
+    def test_each_entry_names_the_agent_that_produced_it(self, rail, build):
+        outcome = run(rail, ScriptedShopper(build), agent_id="browser-7")
+
+        by_event = {e.event_type: e for e in self._history(rail, outcome)}
+        assert by_event["CANDIDATE_SELECTED"].actor == "browser-7"
+        assert by_event["EVALUATION_COMPLETE"].actor == EVALUATOR_ID
+
+    def test_the_evaluation_entry_carries_score_and_reasons(self, rail, build):
+        """The Verdict keeps the score but not the reasons, so this entry must."""
+        shopper = ScriptedShopper(build, risk_score=6, reasons=["Unknown seller."])
+
+        outcome = run(rail, shopper)
+
+        [entry] = [
+            e for e in self._history(rail, outcome)
+            if e.event_type == "EVALUATION_COMPLETE"
+        ]
+        assert entry.evaluation is not None
+        assert entry.evaluation.risk_score == 6
+        assert entry.evaluation.reasons == ["Unknown seller."]
+
+    def test_the_candidate_is_recorded_even_when_the_charge_fails(self, rail, build):
+        """The injection demo needs the rejected listing, not just the rejection.
+
+        Recording before verification is what makes this true, and a FAIL is
+        exactly the case where somebody will ask what the agent had picked.
+        """
+        shopper = ScriptedShopper(build, candidate=_candidate(merchant_id="mrc_unknown"))
+
+        outcome = run(rail, shopper)
+
+        assert outcome.decision is Decision.FAIL
+        events = [e.event_type for e in self._history(rail, outcome)]
+        assert "CANDIDATE_SELECTED" in events
+        assert "EVALUATION_COMPLETE" in events
+
+    def test_verbose_untrusted_text_cannot_break_the_purchase(self, rail, build):
+        """Ten 280-character reasons and a 200-character title are all legal.
+
+        Both are attacker-controlled and both are far longer than an audit
+        summary may hold. If they were interpolated raw, a merchant could fail
+        any purchase by being wordy -- so the summary is clipped and the full
+        text survives on the structured payload.
+        """
+        shopper = ScriptedShopper(
+            build,
+            candidate=_candidate(title="T" * 200),
+            reasons=["R" * 280] * 10,
+        )
+
+        outcome = run(rail, shopper)
+
+        by_event = {e.event_type: e for e in self._history(rail, outcome)}
+        assert len(by_event["CANDIDATE_SELECTED"].summary) <= 500
+        assert len(by_event["EVALUATION_COMPLETE"].summary) <= 500
+        # Clipped for display only: nothing was actually lost.
+        assert by_event["EVALUATION_COMPLETE"].evaluation.reasons == ["R" * 280] * 10
 
 
 class TestDeterministicFailures:

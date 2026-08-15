@@ -171,6 +171,32 @@ class DynamoAuditLog:
         )
         return [AuditEntry.model_validate_json(i["entry"]) for i in response["Items"]]
 
+    def all_entries(self) -> list[AuditEntry]:
+        """Every entry across every mandate, for the dashboard feed.
+
+        **This scans the table, and that is not good enough for production.**
+        The partition key is the mandate id, so there is no way to read across
+        mandates without one -- and the dashboard polls this. Before deploying,
+        add a GSI with a constant partition key and `occurred_at_event` as the
+        sort key, then query it here instead. Left as a scan rather than
+        unimplemented so the feed works the moment the table exists; the
+        provisioning task is the one that has to fix it.
+
+        Sorted here because a scan returns items in no useful order, unlike
+        `list_for_mandate`, which gets ordering free from the range key.
+        """
+        entries: list[AuditEntry] = []
+        kwargs: dict[str, Any] = {}
+        while True:
+            response = self._table.scan(**kwargs)
+            entries.extend(
+                AuditEntry.model_validate_json(i["entry"]) for i in response["Items"]
+            )
+            start_key = response.get("LastEvaluatedKey")
+            if start_key is None:
+                return sorted(entries, key=lambda e: (e.occurred_at, e.event_id))
+            kwargs["ExclusiveStartKey"] = start_key
+
 
 class DynamoReviewHoldStore:
     """Held charges, with DynamoDB TTL doing the cleanup.

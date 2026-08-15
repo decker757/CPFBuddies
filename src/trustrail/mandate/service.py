@@ -11,11 +11,13 @@ writes an audit entry before it is considered done.
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from trustrail.clock import SystemClock
 from trustrail.errors import IllegalBinding, MandateNotFound, MandateStatusConflict
 from trustrail.models.audit import AuditEntry, AuditEventType
+from trustrail.models.evaluation import EvaluatorOutput
 from trustrail.models.mandate import (
     Mandate,
     MandateBinding,
@@ -24,8 +26,14 @@ from trustrail.models.mandate import (
     SignedMandate,
 )
 from trustrail.models.money import Money
-from trustrail.models.primitives import ZERO_HASH, Timestamp, new_hex32, to_bytes
-from trustrail.models.verdict import Verdict
+from trustrail.models.primitives import (
+    ZERO_HASH,
+    Timestamp,
+    clip_text,
+    new_hex32,
+    to_bytes,
+)
+from trustrail.models.verdict import Decision, Verdict
 from trustrail.ports import (
     AuditLog,
     Clock,
@@ -36,8 +44,17 @@ from trustrail.ports import (
 )
 from trustrail.signing.eip712 import Eip712Domain, mandate_digest
 
+logger = logging.getLogger(__name__)
+
 #: Statuses a mandate can still move on from. Anything else is terminal.
 _LIVE_STATUSES = (MandateStatus.MINTED, MandateStatus.BOUND)
+
+#: Events that deserve a second look in a log stream. A rejected charge and a
+#: withdrawn mandate are the two things an operator would want to find without
+#: reading every line, and CloudWatch can filter on the level.
+_NOTABLE_EVENTS = frozenset(
+    {AuditEventType.MANDATE_REVOKED, AuditEventType.KILL_SWITCH_SET}
+)
 
 
 class MandateService:
@@ -171,8 +188,24 @@ class MandateService:
             actor=actor,
             summary=f"revoked: {reason}",
         )
-        if self._registrar is not None:
-            self._registrar.revoke(mandate_id)
+        if self._registrar is None:
+            return record
+
+        # A second entry rather than one, because these are two different
+        # guarantees and only one of them has happened above. The offchain
+        # record stops the next charge through this system; the onchain
+        # revocation stops anyone who bypasses it entirely. Ordering them the
+        # other way round -- chain first, then the entry with its hash -- would
+        # leave a mandate live locally whenever the chain call hung.
+        tx_hash = self._registrar.revoke(mandate_id)
+        if tx_hash:
+            self._append_audit(
+                mandate_id=mandate_id,
+                event=AuditEventType.MANDATE_REVOKED,
+                occurred_at=self._clock.now(),
+                actor=actor,
+                summary=f"revocation recorded onchain in {tx_hash}",
+            )
         return record
 
     def consume(self, mandate_id: str, *, actor: str) -> MandateRecord:
@@ -239,6 +272,41 @@ class MandateService:
             actor="verifier",
             summary=f"{verdict.decision}: {reasons}",
             verdict=verdict,
+        )
+
+    def record_candidate_selected(
+        self, mandate_id: str, *, actor: str, summary: str
+    ) -> None:
+        """Record which product an agent chose, before anything has judged it.
+
+        Deliberately prose and not a structured candidate: everything in a
+        candidate is attacker-controlled, it is already carried faithfully on
+        the `Charge`, and a second structured copy on the audit trail would be
+        one more place to keep the untrusted values in step.
+        """
+        self._append_audit(
+            mandate_id=mandate_id,
+            event=AuditEventType.CANDIDATE_SELECTED,
+            occurred_at=self._clock.now(),
+            actor=actor,
+            summary=summary,
+        )
+
+    def record_evaluation(self, mandate_id: str, *, evaluation: EvaluatorOutput) -> None:
+        """Record what the Evaluator concluded, score and reasons intact.
+
+        The actor is the evaluator id from the output itself, so the trail names
+        whichever evaluator actually ran -- the rules one when the model was
+        unreachable, the hybrid one when it was not.
+        """
+        reasons = "; ".join(evaluation.reasons) or "no reasons given"
+        self._append_audit(
+            mandate_id=mandate_id,
+            event=AuditEventType.EVALUATION_COMPLETE,
+            occurred_at=self._clock.now(),
+            actor=evaluation.evaluator_id,
+            summary=clip_text(f"risk {evaluation.risk_score}/10: {reasons}", 500),
+            evaluation=evaluation,
         )
 
     def _register_onchain(
@@ -308,19 +376,32 @@ class MandateService:
         actor: str,
         summary: str,
         verdict: Verdict | None = None,
+        evaluation: EvaluatorOutput | None = None,
     ) -> None:
-        """The one place an audit entry is constructed."""
-        self._audit.record(
-            AuditEntry(
-                event_id=new_hex32(),
-                mandate_id=mandate_id,
-                event_type=event,
-                occurred_at=occurred_at,
-                actor=actor,
-                summary=summary,
-                verdict=verdict,
-            )
+        """The one place an audit entry is constructed, and the one place it is logged.
+
+        Logging here rather than at each call site is what makes the two records
+        agree by construction: an event cannot reach the audit trail without
+        also reaching the log stream. CLAUDE.md asks for both -- DynamoDB for the
+        dashboard, CloudWatch for operations -- and two independently maintained
+        lists of what to record is how they drift.
+
+        The audit trail remains the durable record. This is for the operator
+        watching a terminal, and for a log stream that outlives an in-memory
+        store.
+        """
+        entry = AuditEntry(
+            event_id=new_hex32(),
+            mandate_id=mandate_id,
+            event_type=event,
+            occurred_at=occurred_at,
+            actor=actor,
+            summary=summary,
+            verdict=verdict,
+            evaluation=evaluation,
         )
+        self._audit.record(entry)
+        _log_entry(entry)
 
     def _log(
         self,
@@ -348,3 +429,34 @@ class MandateService:
             actor=actor,
             summary=summary,
         )
+
+
+def _log_entry(entry: AuditEntry) -> None:
+    """Emit one audit entry as a structured log line.
+
+    The message stays short and the detail goes in `extra`, so a log stream can
+    be filtered on `decision` or `mandate_id` without parsing prose. A FAIL and
+    a revocation are raised to WARNING because they are what an operator scans
+    for, and at INFO they would be buried by the events around them.
+    """
+    decision = entry.verdict.decision.value if entry.verdict else None
+    notable = entry.event_type in _NOTABLE_EVENTS or decision == Decision.FAIL.value
+    logger.log(
+        logging.WARNING if notable else logging.INFO,
+        "%s %s",
+        entry.event_type.value,
+        entry.summary,
+        extra={
+            "event_type": entry.event_type.value,
+            "mandate_id": entry.mandate_id,
+            "actor": entry.actor,
+            "decision": decision,
+            "reason_codes": [code.value for code in entry.verdict.reason_codes]
+            if entry.verdict
+            else None,
+            "failed_deterministically": entry.verdict.failed_deterministically
+            if entry.verdict
+            else None,
+            "risk_score": entry.evaluation.risk_score if entry.evaluation else None,
+        },
+    )

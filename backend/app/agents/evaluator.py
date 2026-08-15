@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable
 from decimal import Decimal
@@ -17,6 +18,8 @@ from app.contracts import (
     RiskReason,
     RiskReasonCode,
 )
+
+logger = logging.getLogger(__name__)
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOP_WORDS = {
@@ -79,6 +82,17 @@ class EvaluatorAgent:
                 )
                 output = self._merge(output, assessment)
             except EvaluationModelError:
+                # Loud, because the degradation is otherwise invisible: the
+                # output still carries `hybrid_evaluator_id`, so a rail whose
+                # model has stopped answering looks exactly like one whose model
+                # found nothing. Silently falling back to rules is the right
+                # behaviour -- the deterministic floor holds either way -- but
+                # not saying so would let a demo claim an LLM read the listing
+                # when nothing did.
+                logger.warning(
+                    "evaluation model unavailable; falling back to rules",
+                    exc_info=True,
+                )
                 output = self._model_unavailable(output)
         self._emit_security_event(listing, output)
         return output

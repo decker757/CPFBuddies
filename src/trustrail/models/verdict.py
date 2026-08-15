@@ -18,9 +18,9 @@ payload says so rather than letting the two look alike.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from trustrail.models.evaluation import MAX_RISK_SCORE, MIN_RISK_SCORE
 from trustrail.models.primitives import Hex32, Timestamp
@@ -124,12 +124,34 @@ class Verdict(BaseModel):
     verifier_version: str
     config_version: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_derived_fields(cls, data: Any) -> Any:
+        """Drop `failed_deterministically` if a payload carries it.
+
+        It is computed, so it is emitted but never accepted: a client asserting
+        its own answer to "was this a fact or a threshold" is exactly the claim
+        this system does not take on trust. Dropping rather than rejecting is
+        what lets a Verdict round-trip through the settlement queue, which
+        serialises to JSON and validates back.
+        """
+        if isinstance(data, dict) and "failed_deterministically" in data:
+            return {k: v for k, v in data.items() if k != "failed_deterministically"}
+        return data
+
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def failed_deterministically(self) -> bool:
         """True when a fact, not a threshold, rejected this charge.
 
         This is the distinction the approval UI needs: a deterministic FAIL must
         never render an override button.
+
+        **Computed, so that it crosses the wire.** It was a plain property, which
+        meant it was absent from the JSON entirely — and a dashboard reading
+        `undefined` gets a falsy value and renders the override button on a bad
+        signature. Deriving it client-side instead would put this rule in two
+        languages and let them drift. The server states it.
         """
         return any(
             check.decision is Decision.FAIL and check.kind is CheckKind.DETERMINISTIC
