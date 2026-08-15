@@ -58,36 +58,40 @@ interface Context {
   queued: boolean
 }
 
+//: Named for who acts, because who acted is the point. The Browser Agent and
+//: the Evaluator Agent are agents and are assumed compromisable; the Verifier
+//: Service is not one, and blurring that would undo the claim the whole system
+//: makes -- that the checking is done by something the agents cannot influence.
 const ORDER: { key: StepKey; title: string; hint: string }[] = [
   {
     key: 'mandate',
-    title: 'Mandate minted',
-    hint: 'Your budget and intent, signed. No product chosen yet.',
+    title: 'Spending limit set',
+    hint: 'Your budget, signed and recorded. No product chosen yet.',
   },
   {
     key: 'candidate',
-    title: 'Agent chose a product',
-    hint: 'The Browser Agent shopped. Nothing downstream trusts what it found.',
+    title: 'Browser Agent chose a product',
+    hint: 'Shopping now. Nothing later in the chain takes its word for anything.',
   },
   {
     key: 'evaluation',
-    title: 'Evaluator scored it',
-    hint: 'Intent match, price, injection. Evidence, not a decision.',
+    title: 'Evaluator Agent scored it',
+    hint: 'Checking the product against what you asked for.',
   },
   {
     key: 'verdict',
-    title: 'Verifier decided',
-    hint: 'Deterministic checks first. The risk score is one input among them.',
+    title: 'Verifier Service decided',
+    hint: 'The checks that cannot be argued with run first.',
   },
   {
     key: 'decision',
     title: 'Your decision',
-    hint: 'Held for a human. Nothing settles until you answer.',
+    hint: 'Paused for you. Nothing moves until you answer.',
   },
   {
     key: 'settlement',
-    title: 'Settlement',
-    hint: 'The contract re-checks the cap and the merchant, or it reverts.',
+    title: 'Payment',
+    hint: 'The contract checks the limit one last time, or refuses.',
   },
 ]
 

@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 import { ApiError, approveReview, killReview, startPurchase } from './api'
 import { FlowTimeline } from './components/FlowTimeline'
 import { IntentBar } from './components/IntentBar'
-import { OutcomeCard } from './components/OutcomeCard'
 import { ReviewModal } from './components/ReviewModal'
+import { RiskPanel } from './components/RiskPanel'
 import { buildSteps } from './steps'
 import { useAuditStream } from './useAuditStream'
 import type { PurchaseResponse, ReviewHold } from './types'
@@ -37,6 +37,8 @@ export default function App() {
   // made in this process, so a run is "everything after the moment I asked".
   const [runFrom, setRunFrom] = useState<number | null>(null)
   const [running, setRunning] = useState(false)
+  /** What the buyer approved, so rows can be phrased in their own numbers. */
+  const [cap, setCap] = useState('5.00')
   const [result, setResult] = useState<PurchaseResponse | null>(null)
   const [hold, setHold] = useState<ReviewHold | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -56,10 +58,14 @@ export default function App() {
     [runFeed, running, result],
   )
 
-  const settlementEntry =
-    runFeed.find(({ entry }) => entry.event_type.startsWith('SETTLEMENT_'))?.entry ?? null
+  // The headline number, as soon as the Evaluator has one -- it does not wait
+  // for the purchase call to return.
+  const evaluation =
+    runFeed.find(({ entry }) => entry.event_type === 'EVALUATION_COMPLETE')?.entry
+      .evaluation ?? null
 
   async function run(intent: string, cap: string) {
+    setCap(cap)
     setRunFrom(entries.length)
     setRunning(true)
     setResult(null)
@@ -114,8 +120,8 @@ export default function App() {
       </header>
 
       <p className="mt-2 max-w-xl text-sm text-charcoal">
-        We do not trust the agent, we trust the rail. Delegate a budget, watch it be
-        checked, and see what happens when the checks say no.
+        Say what you want and set a spending limit. An agent shops for it, and every step
+        is checked before any money moves.
       </p>
 
       <div className="mt-8">
@@ -128,35 +134,42 @@ export default function App() {
         </p>
       )}
 
+      {/* A paused purchase is the only thing here that needs the viewer to act,
+          so it gets a card and a button rather than a line of text to notice. */}
       {hold && !modalOpen && (
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          className="mt-4 w-full rounded-md bg-review-bg px-4 py-3 text-left text-sm font-semibold text-review"
-        >
-          One charge is still waiting on you — reopen
-        </button>
-      )}
-
-      {runFrom !== null && (
-        <section className="mt-10">
-          <h2 className="mb-4 text-xs font-semibold tracking-widest text-charcoal uppercase">
-            What the rail did
-          </h2>
-          <FlowTimeline steps={steps} />
+        <section className="enter mt-6 rounded-lg border border-review/30 bg-review-bg p-5">
+          <h2 className="text-lg font-semibold text-review">This purchase needs your decision</h2>
+          <p className="mt-1 text-sm text-charcoal">
+            It is paused and nothing will move until you answer.
+          </p>
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="mt-4 h-11 rounded-full bg-ink px-6 font-semibold text-on-dark"
+          >
+            Review it
+          </button>
         </section>
       )}
 
-      {result && !modalOpen && (
-        <div className="mt-4">
-          <OutcomeCard result={result} settlement={settlementEntry} />
+      {evaluation && (
+        <div className="mt-6">
+          <RiskPanel evaluation={evaluation} />
         </div>
+      )}
+
+      {runFrom !== null && (
+        <section className="mt-8">
+          <h2 className="mb-4 text-xs font-semibold tracking-widest text-charcoal uppercase">
+            TrustRail progress
+          </h2>
+          <FlowTimeline steps={steps} run={{ cap, charge: result?.charge ?? null }} />
+        </section>
       )}
 
       {runFrom === null && (
         <p className="mt-10 rounded-md border border-dashed border-hairline p-6 text-sm text-mute">
-          Nothing running. Type an intent above — the mandate is minted before any product
-          is chosen, so what you approve is a budget, not a basket.
+          Nothing running yet. Say what you want above, set a limit, and press Delegate.
         </p>
       )}
 
