@@ -100,6 +100,24 @@ class AuditLog(Protocol):
         """Entries for one mandate, oldest first."""
         ...
 
+    def all_entries(self) -> list[AuditEntry]:
+        """Every entry, oldest first. Backs the decision dashboard.
+
+        On the port because the dashboard is a cross-mandate view and there was
+        no way to ask for one: `list_for_mandate` needs an id, and the feed's
+        whole job is to show purchases nobody has asked about yet.
+
+        Oldest first, in a **stable total order** -- the same entries must come
+        back in the same order on every read. That is what a feed cursor rests
+        on: reorder the history between two reads and a client resuming from
+        position N silently skips or repeats rows. Timestamps alone are not
+        enough, because entries can share one: the Purchase Orchestrator records
+        the candidate and the evaluation together, since workstream B hands it
+        both at once. An implementation ordering by time needs a deterministic
+        tiebreak.
+        """
+        ...
+
 
 class MandateRegistrar(Protocol):
     """Puts a mandate on the ledger, and takes its authority away again.

@@ -274,6 +274,42 @@ def test_audit_entries_are_scoped_to_their_mandate(stores: dict[str, Any]) -> No
     assert len(stores["audit"].list_for_mandate("0x" + "a1" * 32)) == 1
 
 
+def test_the_dashboard_feed_crosses_every_mandate(stores: dict[str, Any]) -> None:
+    """`all_entries` is the one read no mandate id can answer."""
+    stores["audit"].record(_entry("0x" + "a1" * 32, seq=1))
+    stores["audit"].record(_entry("0x" + "a2" * 32, seq=2))
+    stores["audit"].record(_entry("0x" + "a1" * 32, seq=3))
+
+    assert [e.summary for e in stores["audit"].all_entries()] == [
+        "event 1",
+        "event 2",
+        "event 3",
+    ]
+
+
+def test_the_feed_orders_entries_that_share_a_timestamp(
+    stores: dict[str, Any],
+) -> None:
+    """The feed cursor rests on this being a stable total order.
+
+    The Purchase Orchestrator writes the candidate and the evaluation at one
+    instant, so ties are routine rather than exotic. An implementation that
+    ordered by time alone could return them either way round on successive
+    reads, and a client resuming from position N would skip or repeat a row.
+    """
+    mandate_id = "0x" + "a1" * 32
+    tied = [_entry(mandate_id, seq=seq).model_copy(update={"occurred_at": DEMO_NOW})
+            for seq in (3, 1, 2)]
+    for entry in tied:
+        stores["audit"].record(entry)
+
+    first = [e.event_id for e in stores["audit"].all_entries()]
+    second = [e.event_id for e in stores["audit"].all_entries()]
+
+    assert first == second
+    assert sorted(first) == sorted(e.event_id for e in tied)
+
+
 # --- review holds ----------------------------------------------------------
 
 
