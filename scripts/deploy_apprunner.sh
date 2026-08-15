@@ -156,10 +156,12 @@ if [[ -n "$SERVICE_ARN" && "$SERVICE_ARN" != "None" ]]; then
 else
   echo "  create  ${SERVICE}"
   echo
-  echo "  Set the runtime environment on the service. TRUSTRAIL_REGISTRAR_KEY and"
-  echo "  TRUSTRAIL_SETTLER_KEY are private keys — put them in Parameter Store as"
-  echo "  SecureString and reference them, or move to KMS and drop them entirely."
-  echo "  CLAUDE.md is explicit that no private key material belongs anywhere else."
+  echo "  No private keys below: both roles are on KMS, and _required_signer"
+  echo "  prefers TRUSTRAIL_*_KEY_KMS over a key in the environment."
+  echo
+  echo "  AWS_DEFAULT_REGION is not redundant with AWS_REGION. botocore reads the"
+  echo "  former; the stores call boto3.resource(\"dynamodb\") with no explicit"
+  echo "  region, so setting only AWS_REGION crashes them with NoRegionError."
   echo
   cat <<EOF
   aws apprunner create-service --region ${REGION} \\
@@ -175,8 +177,11 @@ else
             "TRUSTRAIL_NETWORK": "avalanche",
             "TRUSTRAIL_RPC_URL": "https://api.avax.network/ext/bc/C/rpc",
             "TRUSTRAIL_QUEUE_URL": "<from provision_aws.py>",
+            "TRUSTRAIL_REGISTRAR_KEY_KMS": "alias/trustrail-registrar",
+            "TRUSTRAIL_SETTLER_KEY_KMS": "alias/trustrail-settler",
             "TRUSTRAIL_EVALUATOR_MODEL": "bedrock",
-            "AWS_REGION": "${REGION}"
+            "AWS_REGION": "${REGION}",
+            "AWS_DEFAULT_REGION": "${REGION}"
           }
         }
       },

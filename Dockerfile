@@ -30,7 +30,16 @@ FROM python:3.13-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=8000
+    PORT=8000 \
+    # The source tree must shadow the installed copies in site-packages, and
+    # this is not a style preference. Both packages locate their runtime data
+    # relative to their own file -- `REPO_ROOT = Path(__file__).parents[N]` --
+    # so an import resolved from site-packages looks for `config/verifier.toml`
+    # and `onchain/deployments/` under /usr/local/lib, where they are not. From
+    # /srv/src and /srv/backend those same expressions land on /srv, where the
+    # COPY lines below put them. Without this the container starts and then dies
+    # with FileNotFoundError on the verifier config.
+    PYTHONPATH=/srv/src:/srv/backend
 
 WORKDIR /srv
 
