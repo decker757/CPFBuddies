@@ -22,6 +22,11 @@ Rules:
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when
   query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- **Nothing under `graphify-out/` is committed** — it is all generated. After cloning, run
+  `graphify update .` once to build `graph.json` and `GRAPH_REPORT.md`. They used to be tracked,
+  but a hook rebuilds them after every commit and checkout, which left the tree permanently dirty
+  and aborted `git pull`. The report is not reproducible either: it stamps the current commit SHA
+  and the community detection is unseeded.
 - Service boundaries in this repo are load-bearing (see Services below). Before adding a call
   between services, run `graphify path "<A>" "<B>"` to check you are not creating a cycle or
   bypassing the Verifier.

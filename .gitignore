@@ -218,7 +218,16 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# graphify — commit graph.json (it has a merge driver in .gitattributes),
-# but not the local rebuild cache or generated viz.
-graphify-out/cache/
-graphify-out/*.html
+# graphify — everything here is generated, and a git hook rebuilds it after
+# every commit and every checkout. Committing any of it means the working tree
+# is never clean for long: `git pull` aborts with "local changes would be
+# overwritten", and every PR carries a diff of machine output nobody reads.
+#
+# GRAPH_REPORT.md is no exception, for two reasons that are not fixable here:
+# it stamps itself with the current commit SHA, and the community detection is
+# unseeded, so 96 communities becomes 97 on a rebuild from identical source.
+#
+# Only the root marker is tracked. Run `graphify update .` to build the rest
+# locally; it is AST-only, costs nothing, and takes seconds.
+graphify-out/*
+!graphify-out/.graphify_root

@@ -1,5 +1,3 @@
-graphify-out/graph.json merge=graphify
-
 # Generated output must be byte-identical on every platform.
 #
 # `trustrail.contracts.export` writes UTF-8 with explicit LF, and the Hardhat deploy script
