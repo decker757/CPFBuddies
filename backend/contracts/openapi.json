@@ -1,0 +1,669 @@
+{
+  "components": {
+    "schemas": {
+      "Currency": {
+        "description": "Currencies this system can parse.\n\nOnly XSGD is settleable \u2014 that is a track rule, enforced by the Verifier\nrather than by this enum. The others exist because a merchant can quote in\nthem, and we would rather reject that with a reason code than fail to parse\nthe payload at all.",
+        "enum": [
+          "XSGD",
+          "SGD",
+          "USD"
+        ],
+        "title": "Currency",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Listing": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "enum": [
+              "in_stock",
+              "out_of_stock"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "seller_account_age_days": {
+            "maximum": 36500.0,
+            "minimum": 0.0,
+            "title": "Seller Account Age Days",
+            "type": "integer"
+          },
+          "seller_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Seller Id",
+            "type": "string"
+          },
+          "seller_rating": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Rating"
+          },
+          "seller_rating_count": {
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Seller Rating Count",
+            "type": "integer"
+          },
+          "sku": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Sku",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sku",
+          "title",
+          "description",
+          "price",
+          "availability",
+          "seller_id",
+          "seller_account_age_days",
+          "seller_rating_count"
+        ],
+        "title": "Listing",
+        "type": "object"
+      },
+      "ListingsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "basket_hash": {
+            "pattern": "^0x[0-9a-fA-F]{64}$",
+            "title": "Basket Hash",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Listing"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "merchant": {
+            "$ref": "#/components/schemas/Merchant"
+          },
+          "quote_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Quote Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quote_id",
+          "expires_at",
+          "merchant",
+          "items",
+          "basket_hash"
+        ],
+        "title": "ListingsResponse",
+        "type": "object"
+      },
+      "MarketplaceErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "enum": [
+              "unknown_quote",
+              "expired_quote",
+              "sku_not_in_quote",
+              "out_of_stock",
+              "quote_already_consumed",
+              "quote_integrity_failed"
+            ],
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "MarketplaceErrorResponse",
+        "type": "object"
+      },
+      "Merchant": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "title": "Address",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "address",
+          "name"
+        ],
+        "title": "Merchant",
+        "type": "object"
+      },
+      "Money": {
+        "additionalProperties": false,
+        "description": "A non-negative amount in a known currency.\n\nEquality and ordering compare exact minor units. Comparing across\ncurrencies raises: the Verifier rejects a currency mismatch with a reason\ncode before any comparison happens, so reaching that raise means a caller\nskipped the pipeline.",
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          }
+        },
+        "required": [
+          "currency",
+          "amount"
+        ],
+        "title": "Money",
+        "type": "object"
+      },
+      "PaymentRequired": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "const": "payment_required",
+            "default": "payment_required",
+            "title": "Error",
+            "type": "string"
+          },
+          "payment_terms": {
+            "$ref": "#/components/schemas/PaymentTerms"
+          }
+        },
+        "required": [
+          "payment_terms"
+        ],
+        "title": "PaymentRequired",
+        "type": "object"
+      },
+      "PaymentTerms": {
+        "additionalProperties": false,
+        "description": "What the merchant says it wants, returned with an HTTP 402.",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "asset": {
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "title": "Asset",
+            "type": "string"
+          },
+          "basket_hash": {
+            "pattern": "^0x[0-9a-fA-F]{64}$",
+            "title": "Basket Hash",
+            "type": "string"
+          },
+          "chain_id": {
+            "minimum": 1.0,
+            "title": "Chain Id",
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "network": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Network",
+            "type": "string"
+          },
+          "nonce": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "pay_to": {
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "title": "Pay To",
+            "type": "string"
+          },
+          "quote_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Quote Id",
+            "type": "string"
+          },
+          "scheme": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Scheme",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme",
+          "network",
+          "chain_id",
+          "asset",
+          "pay_to",
+          "amount",
+          "basket_hash",
+          "quote_id",
+          "expires_at",
+          "nonce"
+        ],
+        "title": "PaymentTerms",
+        "type": "object"
+      },
+      "PurchaseReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "basket_hash": {
+            "pattern": "^0x[0-9a-fA-F]{64}$",
+            "title": "Basket Hash",
+            "type": "string"
+          },
+          "payment_proof": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Payment Proof",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "quote_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Quote Id",
+            "type": "string"
+          },
+          "sku": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Sku",
+            "type": "string"
+          },
+          "status": {
+            "const": "settled",
+            "default": "settled",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quote_id",
+          "sku",
+          "quantity",
+          "amount",
+          "basket_hash",
+          "payment_proof"
+        ],
+        "title": "PurchaseReceipt",
+        "type": "object"
+      },
+      "PurchaseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mandate_credential": {
+            "additionalProperties": true,
+            "title": "Mandate Credential",
+            "type": "object"
+          },
+          "quantity": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "quote_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Quote Id",
+            "type": "string"
+          },
+          "signed_request": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Signed Request",
+            "type": "string"
+          },
+          "sku": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Sku",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sku",
+          "quantity",
+          "quote_id",
+          "mandate_credential",
+          "signed_request"
+        ],
+        "title": "PurchaseRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Merchant surface and internal candidate-evaluation agents.",
+    "title": "CPF Buddies Workstream B",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/listings": {
+      "get": {
+        "operationId": "get_listings_listings_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_price",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 1000000000.0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Price"
+            }
+          },
+          {
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "const": "XSGD",
+              "default": "XSGD",
+              "title": "Currency",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Listings",
+        "tags": [
+          "marketplace"
+        ]
+      }
+    },
+    "/purchase": {
+      "post": {
+        "operationId": "purchase_purchase_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Payment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Payment"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            },
+            "description": "Payment Required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketplaceErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Purchase",
+        "tags": [
+          "marketplace"
+        ]
+      }
+    }
+  }
+}

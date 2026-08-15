@@ -1,0 +1,13 @@
+{
+  "evaluator_id": "evaluator-rules-v1",
+  "risk_score": 10,
+  "intent_match": true,
+  "price_within_cap": true,
+  "injection_detected": true,
+  "reasons": [
+    {
+      "code": "PROMPT_INJECTION",
+      "detail": "Listing contains instructions directed at an agent."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "evaluator_id": "evaluator-rules-v1",
+  "risk_score": 1,
+  "intent_match": true,
+  "price_within_cap": true,
+  "injection_detected": false,
+  "reasons": []
+}

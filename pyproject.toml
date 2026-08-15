@@ -39,7 +39,14 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# All three workstreams in one run. B is a separate installable under backend/, but its tests
+# belong to the same suite: the seams between workstreams are where this project breaks, and a
+# seam that is only exercised when someone remembers to run a second command is not tested.
+testpaths = ["tests", "backend/tests"]
+# importlib import mode: two test roots both called "tests", each with its own
+# test_contract_fixtures.py. The legacy prepend mode derives module names from the directory
+# and collides on both counts; importlib gives each file a unique name from its full path.
+addopts = "--import-mode=importlib"
 pythonpath = ["src"]
 markers = [
     "integration: needs a local Hardhat node and a localhost deployment; skips without one",
