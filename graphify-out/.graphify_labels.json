@@ -1,7 +1,17 @@
 {
   "0": "CLAUDE.md",
-  "1": "Services",
-  "2": "Frontend",
-  "3": "AWS",
-  "10": "README.md"
+  "1": "test_marketplace.py",
+  "2": "ListingsResponse",
+  "3": "ModelAssessment",
+  "4": "contracts.py",
+  "5": "EvaluatorAgent",
+  "7": "Workstream B: agents and merchant surface",
+  "8": "main.py",
+  "9": "test_marketplace_service.py",
+  "10": "README.md",
+  "11": "app/__init__.py",
+  "12": "marketplace/__init__.py",
+  "14": "tests/__init__.py",
+  "15": "cpf-buddies-backend",
+  "16": "scripts/__init__.py"
 }
