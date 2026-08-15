@@ -65,7 +65,7 @@ class ChainMandateRegistrar:
             "mandate registered onchain",
             extra={"mandate_id": mandate_id, "tx_hash": result.tx_hash},
         )
-        return result.tx_hash
+        return _hex(result.tx_hash)
 
     def revoke(self, mandate_id: str) -> str | None:
         result = self._client.revoke(mandate_id)
@@ -80,4 +80,15 @@ class ChainMandateRegistrar:
                 extra={"mandate_id": mandate_id, "revert": str(result.revert)},
             )
             return None
-        return result.tx_hash
+        return _hex(result.tx_hash)
+
+
+def _hex(tx_hash: str) -> str:
+    """0x-prefix a transaction hash on its way out of the chain layer.
+
+    These end up in audit summaries, and a bare hash is neither a valid explorer
+    link nor recognisable to anything downstream looking for one. `explorer.py`
+    already normalises the same way for its URLs; doing it here means every
+    consumer sees the canonical form rather than each one re-deciding.
+    """
+    return tx_hash if tx_hash.startswith("0x") else f"0x{tx_hash}"

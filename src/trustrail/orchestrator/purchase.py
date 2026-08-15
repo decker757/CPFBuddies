@@ -39,7 +39,7 @@ from trustrail.models.mandate import (
     MandateState,
 )
 from trustrail.models.money import Money
-from trustrail.models.primitives import new_hex32
+from trustrail.models.primitives import clip_text, new_hex32
 from trustrail.models.review import (
     HumanApproval,
     ReviewHold,
@@ -47,7 +47,7 @@ from trustrail.models.review import (
 )
 from trustrail.models.verdict import Decision, Verdict
 from trustrail.models.verification import VerificationRequest
-from trustrail.orchestrator.ports import ShoppingAgents
+from trustrail.orchestrator.ports import ShoppingAgents, ShoppingResult
 from trustrail.ports import (
     AgentDirectory,
     Clock,
@@ -159,6 +159,7 @@ class PurchaseOrchestrator:
         )
         charge = _charge_for(found.candidate, mandate_id=mandate_id)
         evidence = found.evaluation
+        self._record_agent_work(mandate_id, agent_id=agent_id, found=found)
 
         verdict = self._verify(record, charge, evidence)
         return self._dispatch(record, charge, evidence, verdict)
@@ -247,6 +248,38 @@ class PurchaseOrchestrator:
         )
 
     # -- internals ---------------------------------------------------------
+
+    def _record_agent_work(
+        self, mandate_id: str, *, agent_id: str, found: ShoppingResult
+    ) -> None:
+        """Put the two agents' work on the audit trail, before it is judged.
+
+        These are the beats the dashboard renders between "mandate minted" and
+        the verdict, and recording them before `_verify` matters: a charge that
+        is about to FAIL still leaves behind what was chosen and why the
+        Evaluator scored it as it did.
+
+        **Both are recorded at the same instant, and that is not a bug.**
+        Workstream B returns the candidate and the evaluation in one round trip
+        (see `ShoppingAgents`, which is one port on purpose), so the
+        orchestrator learns of them together and never observes when either
+        agent finished. Stamping two different times would invent an ordering
+        this service did not witness, in the one log whose whole value is that
+        it did not. A UI is free to stagger the reveal; the record says what
+        was actually known.
+        """
+        candidate = found.candidate
+        self._mandates.record_candidate_selected(
+            mandate_id,
+            actor=agent_id,
+            summary=(
+                f"selected {candidate.sku} at {candidate.amount} "
+                f"from {candidate.merchant_id}: {clip_text(candidate.title, 160)}"
+            ),
+        )
+        self._mandates.record_evaluation(
+            mandate_id, evaluation=found.evaluation.evaluation
+        )
 
     def _verify(
         self,
