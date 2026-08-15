@@ -2,7 +2,9 @@
 name = "trustrail"
 version = "0.1.0"
 description = "A trust rail for agent payments: mandate issuance and settlement verification."
-requires-python = ">=3.13"
+# 3.11 is the floor the team is actually on. Nothing here needs 3.12+: StrEnum,
+# Self and the generics syntax in use all landed in 3.11.
+requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
@@ -12,13 +14,18 @@ dependencies = [
     # eth-utils leaves the keccak backend to the caller; without one, every
     # digest in this package raises at import-time of the first hash.
     "eth-hash[pycryptodome]>=0.7",
+    # Settlement talks to Avalanche C-Chain; web3 brings eth-account and hexbytes,
+    # which the transaction encoder needs.
+    "web3>=7.6,<8.0",
+    # The x402 client speaks HTTP to merchants, so httpx is a runtime dependency
+    # here, not just a test one.
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]
 aws = ["boto3>=1.35"]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
     "uvicorn>=0.34",
     "moto[dynamodb]>=5.0",
     "boto3>=1.35",
@@ -34,3 +41,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "integration: needs a local Hardhat node and a localhost deployment; skips without one",
+]

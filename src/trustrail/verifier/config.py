@@ -90,7 +90,12 @@ class VerifierConfig(BaseSettings):
         deliberately file-only: chain id and registry address are the things
         that should be written down and reviewed, not passed in at runtime.
         """
-        from_file = tomllib.loads(path.read_text())
+        # tomllib.load with a binary handle, not loads(read_text()): TOML is UTF-8 by
+        # specification, and read_text() would decode with the platform default instead --
+        # cp1252 on Windows. Harmless while the only non-ASCII here is in a comment, but it
+        # would quietly change a parsed value the moment one appears in a string.
+        with path.open("rb") as handle:
+            from_file = tomllib.load(handle)
         return cls(**{k: v for k, v in from_file.items() if not _set_in_env(k)})
 
     @property

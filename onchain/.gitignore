@@ -1,0 +1,9 @@
+node_modules/
+artifacts/
+cache/
+typechain-types/
+.env
+
+# Local chain deployments are disposable; testnet and mainnet records are committed.
+deployments/localhost.json
+deployments/hardhat.json

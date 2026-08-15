@@ -42,7 +42,9 @@ def test_committed_fixture_matches_generated_scenario(scenario: Scenario) -> Non
     path = FIXTURE_DIR / f"{scenario.name}.json"
     assert path.exists(), f"run `python -m trustrail.contracts.export` to add {path.name}"
 
-    committed = json.loads(path.read_text())
+    # Explicit encoding: the fixtures are UTF-8 and the descriptions contain em-dashes, so the
+    # platform default would mis-decode them on Windows.
+    committed = json.loads(path.read_text(encoding="utf-8"))
 
     assert committed["request"] == scenario.request.model_dump(mode="json")
     assert committed["expected"]["decision"] == scenario.expected_decision.value

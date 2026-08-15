@@ -1,0 +1,25 @@
+{
+  "name": "cpfbuddies-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MandateRegistry and test doubles for the agent-payments trust rail",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:fuji": "hardhat run scripts/deploy.ts --network fuji",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network avalanche"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "hardhat": "^2.22.17",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.1.0",
+    "dotenv": "^16.4.7"
+  }
+}

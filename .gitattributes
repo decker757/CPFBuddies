@@ -1,1 +1,13 @@
 graphify-out/graph.json merge=graphify
+
+# Generated output must be byte-identical on every platform.
+#
+# `trustrail.contracts.export` writes UTF-8 with explicit LF, and the Hardhat deploy script
+# writes LF too. Without these rules, a checkout under `core.autocrlf=true` converts them to
+# CRLF in the working tree, so the next export rewrites every file and a reviewer cannot tell
+# a real wire-contract change from a line-ending one.
+#
+# The promise is that a clean `git diff` means the contract did not move. That has to hold for
+# a reviewer on macOS reading a commit made on Windows.
+contracts/**       text eol=lf
+onchain/deployments/*.json text eol=lf
