@@ -23,8 +23,14 @@ configuration. What it encodes that configuration must also encode:
 
 from __future__ import annotations
 
+import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
+from threading import Event, Thread
 
 from fastapi import FastAPI
 from trustrail.app import create_app
@@ -37,7 +43,7 @@ from trustrail.orchestrator.purchase import PurchaseOrchestrator
 from trustrail.settlement.models import SettlementReceipt
 from trustrail.settlement.queue.memory import InMemorySettlementQueue
 from trustrail.settlement.rails.base import SettlementRail
-from trustrail.settlement.wiring import ChainWiring
+from trustrail.settlement.wiring import ChainWiring, build_chain, check_deployment
 from trustrail.settlement.worker import SettlementWorker
 from trustrail.signing.eip712 import Eip712Domain
 from trustrail.signing.local import LocalSigner
@@ -61,6 +67,26 @@ from app.marketplace.routes import create_marketplace_router
 from app.marketplace.service import MERCHANT, MarketplaceService, SettlementProfile
 
 BROWSER_AGENT_ID = "browser-agent-1"
+
+#: Where the frontend runs in development. Named rather than wildcarded because
+#: this API has no authentication: see `create_app`.
+DEFAULT_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+VERIFIER_CONFIG = REPO_ROOT / "config" / "verifier.toml"
+#: Every env file, and they hold different things: the repo root carries the
+#: chain keys, `backend/` the Bedrock credentials, `onchain/` the deploy key and
+#: RPC URLs. Loading only one silently leaves part of the rail unconfigured,
+#: which reads as "settlement is broken" rather than "a file was not read".
+#:
+#: Order is first-wins, so the root file is authoritative where they overlap.
+DOTENV_PATHS = (
+    REPO_ROOT / ".env",
+    REPO_ROOT / "backend" / ".env",
+    REPO_ROOT / "onchain" / ".env",
+)
+
+logger = logging.getLogger(__name__)
 
 
 class DirectListingsClient:
@@ -125,6 +151,7 @@ def build_rail(
     chain: ChainWiring | None = None,
     issuer: LocalSigner | None = None,
     settlement_rail: SettlementRail | None = None,
+    cors_origins: list[str] | None = None,
 ) -> Rail:
     """Assemble the whole rail, with the stub marketplace in the same process.
 
@@ -198,6 +225,12 @@ def build_rail(
         queue=queue,
     )
 
+    # The worker is built before the app because the app's lifespan runs it.
+    # Nothing else in the system drains the settlement queue, so a rail whose
+    # worker is created afterwards is a rail that queues charges and never
+    # executes them.
+    worker = _worker(queue, audit, settlement_rail or (chain.rail if chain else None))
+
     app = create_app(
         mandates=mandates,
         verifier=verifier,
@@ -205,6 +238,9 @@ def build_rail(
         onboarding=onboarding,
         merchants=merchants,
         agents=agents,
+        audit=audit,
+        cors_origins=cors_origins,
+        lifespan=_settlement_lifespan(worker) if worker else None,
     )
     app.include_router(create_marketplace_router(marketplace))
 
@@ -219,9 +255,40 @@ def build_rail(
         queue=queue,
         audit=audit,
         evaluator_signer=evaluator_signer,
-        worker=_worker(queue, audit, settlement_rail or (chain.rail if chain else None)),
+        worker=worker,
         chain=chain,
     )
+
+
+def _settlement_lifespan(worker: SettlementWorker):
+    """Run the Settlement Worker for as long as the app is serving.
+
+    In deployment this is a separate process consuming SQS, which is why the
+    worker takes a stop `Event` rather than owning its own lifecycle. Here it is
+    a daemon thread beside the routes: settlement is blocking web3 I/O, so an
+    asyncio task would stall the event loop and with it the SSE feed that exists
+    to show the settlement arriving.
+
+    Keeping it out of the request path is the point. `POST /purchases` answers as
+    soon as the Verifier has, and the transaction lands moments later on the
+    audit stream -- which is the demo beat: a row appearing on its own, with a
+    Snowtrace link, while nobody touches anything.
+    """
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        stop = Event()
+        thread = Thread(target=worker.run_forever, args=(stop,), daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            # Bounded, because a hung rail must not hold up shutdown. The thread
+            # is a daemon, so the process still exits if the join times out.
+            thread.join(timeout=10)
+
+    return lifespan
 
 
 def _worker(
@@ -250,13 +317,209 @@ def _worker(
 def demo_app() -> FastAPI:
     """The whole rail as an ASGI app, for `uvicorn --factory app.rail:demo_app`.
 
+    **Offline: nothing here moves money.** No chain means mandates are not
+    registered onchain and the settlement queue fills with charges nobody
+    executes. That is the right default for building a frontend against, and
+    the wrong one for a demo — use `chain_app` for that.
+
     Selection is left free here rather than pinned to a SKU, so the Browser
     Agent picks by price the way it actually would. That means the S$0.50
     listing from the unrated seller wins and the first purchase lands in
     REVIEW — which is the honest default, and the demo beat worth opening on.
-    Pin `preferred_sku` through `build_rail` to walk the other scenarios.
+
+    Set `TRUSTRAIL_DEMO_SKU` to walk the other beats. That knob is needed rather
+    than optional: see `_preferred_sku_from_env`.
     """
-    return build_rail().app
+    load_environment()
+    _configure_logging()
+    return build_rail(
+        preferred_sku=_preferred_sku_from_env(),
+        evaluator_model=_evaluator_model_from_env(),
+        cors_origins=_cors_origins_from_env(),
+    ).app
+
+
+def chain_app() -> FastAPI:
+    """The whole rail, wired to a real chain, for `uvicorn --factory`.
+
+        TRUSTRAIL_NETWORK=avalanche \
+        TRUSTRAIL_RPC_URL=https://api.avax.network/ext/bc/C/rpc \
+        TRUSTRAIL_REGISTRAR_KEY=0x... TRUSTRAIL_SETTLER_KEY=0x... \
+        uvicorn --factory app.rail:chain_app
+
+    This is what a frontend demo that actually settles XSGD talks to.
+    `demo_onchain.py` proves the same path from a terminal; this serves it over
+    HTTP so the approval UI and the dashboard can drive it instead.
+
+    It refuses to start on a misconfiguration rather than failing later, for the
+    reasons `check_deployment` gives: a wrong role reverts several steps down,
+    and a wrong signing domain does not fail at all — it quietly records digests
+    onchain that no contract shares.
+
+    **The keys are read from the environment, which is the gap KMS closes.**
+    CLAUDE.md wants no private key material outside KMS; these come from
+    gitignored `.env` files today. Swapping `LocalSigner` for `KmsSigner` here is
+    the whole change, and nothing above this function needs to know.
+    """
+    load_environment()
+    _configure_logging()
+    network = os.environ.get("TRUSTRAIL_NETWORK", "localhost")
+    rpc_url = os.environ.get("TRUSTRAIL_RPC_URL", "http://127.0.0.1:8545")
+    registrar = _required_signer("TRUSTRAIL_REGISTRAR_KEY")
+    settler = _required_signer("TRUSTRAIL_SETTLER_KEY")
+
+    domain = VerifierConfig.from_toml(VERIFIER_CONFIG).domain
+    chain = build_chain(
+        rpc_url=rpc_url,
+        network=network,
+        registrar_signer=registrar,
+        settler_signer=settler,
+    )
+    if not chain.w3.is_connected():
+        raise RuntimeError(f"no chain at {rpc_url}")
+
+    problems = check_deployment(
+        chain.deployment,
+        registrar_address=registrar.address,
+        settler_address=settler.address,
+        domain=domain,
+    )
+    if problems:
+        raise RuntimeError("refusing to start: " + "; ".join(problems))
+
+    return build_rail(
+        chain=chain,
+        issuer=registrar,
+        domain=domain,
+        preferred_sku=_preferred_sku_from_env(),
+        evaluator_model=_evaluator_model_from_env(),
+        cors_origins=_cors_origins_from_env(),
+    ).app
+
+
+def _required_signer(env_var: str) -> LocalSigner:
+    key = os.environ.get(env_var)
+    if not key:
+        raise RuntimeError(
+            f"{env_var} is not set. `chain_app` settles real money and will not "
+            f"invent a key to do it with; `demo_app` runs offline without one."
+        )
+    return LocalSigner.from_hex(key)
+
+
+def load_environment() -> None:
+    """Read the repo's env files, if python-dotenv is installed.
+
+    Public because `scripts/demo_onchain.py` needs exactly the same view of the
+    environment as the server. It used to read `os.environ` directly, which meant
+    a fully populated `.env` and a script that could not see any of it.
+
+    Called from the factories rather than at import, deliberately. `build_rail`
+    is what the tests use, and a developer's `.env` reaching into a test run
+    would let a Bedrock token turn the offline suite into one that makes network
+    calls -- a suite whose result depends on whose machine it ran on.
+
+    `python-dotenv` is a dev dependency, so a deployment that installs only
+    runtime dependencies skips this and reads real environment variables, which
+    is what a deployment should be doing anyway.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    for path in DOTENV_PATHS:
+        if path.exists():
+            # Never override a variable already set: an explicit `$env:` in the
+            # shell is a deliberate act and must win over a file.
+            load_dotenv(path, override=False)
+
+
+def _configure_logging() -> None:
+    """Make the rail's own log lines visible.
+
+    Without this nothing below WARNING is printed: uvicorn configures its own
+    loggers and leaves the root logger at its default, so every verdict, mint
+    and revocation is emitted and then silently dropped. That is exactly the
+    "the services are not logging outcomes" symptom, and it is a configuration
+    gap rather than a missing call.
+    """
+    level = os.environ.get("TRUSTRAIL_LOG_LEVEL", "INFO").upper()
+    for name in ("trustrail", "app"):
+        logging.getLogger(name).setLevel(level)
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=level, format="%(levelname)-8s %(name)s  %(message)s")
+
+
+def _evaluator_model_from_env() -> object | None:
+    """The Evaluator's LLM, when this deployment has one.
+
+    Rules-only is the honest default. The rules evaluator is deterministic and
+    needs no credentials, and CLAUDE.md is clear that the LLM is "a heuristic
+    layer on top of deterministic enforcement, never a replacement for it" --
+    so running without it is a degraded evaluator, not a broken rail.
+
+    `TRUSTRAIL_EVALUATOR_MODEL` forces the choice either way; otherwise the
+    presence of `AWS_BEARER_TOKEN_BEDROCK` is taken as the intent to use
+    Bedrock, since that is the credential the smoke script already documents.
+
+    Note what this cannot check: `from_environment` builds a lazy boto3 client
+    and never contacts AWS, so bad credentials surface as the first `assess`
+    call failing. `EvaluatorAgent` catches that and falls back to its rules,
+    reporting `evaluator-hybrid-nova-v1` so the trail records that a model was
+    meant to run. Both ids are registered, so the Verifier accepts either.
+    """
+    choice = os.environ.get("TRUSTRAIL_EVALUATOR_MODEL", "").strip().lower()
+    if choice in {"none", "rules"}:
+        return None
+    if choice not in {"", "bedrock"}:
+        raise RuntimeError(
+            f"TRUSTRAIL_EVALUATOR_MODEL={choice!r} is not 'bedrock', 'rules' or 'none'"
+        )
+    if choice != "bedrock" and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+        logger.info("evaluator: rules only (no Bedrock credentials found)")
+        return None
+
+    from app.agents.bedrock import BedrockEvaluatorModel
+
+    model = BedrockEvaluatorModel.from_environment()
+    logger.info("evaluator: Bedrock %s (rules remain the floor)", model.model_id)
+    return model
+
+
+def _preferred_sku_from_env() -> str | None:
+    """Pin the Browser Agent to one listing, so a demo can walk its own script.
+
+    **This is not a convenience, it is the only way to reach the PASS beat.**
+    The agent selects by lowest price, and the good S$4.20 toothbrush is
+    dominated by both poisoned listings: the injected one is S$4.00 with an
+    identical title, and the unrated seller's is S$0.50. Every honest toothbrush
+    query therefore lands on one of those two. Dropping the word "toothbrush"
+    from the intent does surface the good listing, and then the Evaluator flags
+    an intent mismatch and fails it -- correctly, because the intent no longer
+    describes a toothbrush.
+
+    So a clean PASS is unreachable through the UI without pinning. That is a
+    property of the demo catalogue rather than of the rail, and the honest fix
+    is this knob rather than teaching the agent to prefer the listing we like.
+
+        TB-SOFT-2PK      PASS    -- clean purchase, settles
+        TB-SUSPICIOUS    REVIEW  -- unrated seller, far below market
+        TB-INJECTION     FAIL    -- prompt injection in the description
+        GIFT-SUBSTITUTE  FAIL    -- substitution, against a toothbrush intent
+
+    Leave it unset for honest selection. Note that `GIFT-SUBSTITUTE` only reads
+    as a substitution against a toothbrush intent: ask for a gift card and it is
+    simply what you asked for, and passes.
+    """
+    return os.environ.get("TRUSTRAIL_DEMO_SKU") or None
+
+
+def _cors_origins_from_env() -> list[str]:
+    """Origins allowed to call this API, comma-separated, or the dev defaults."""
+    configured = os.environ.get("TRUSTRAIL_CORS_ORIGINS")
+    if configured is None:
+        return list(DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
 def _seed(onboarding: OnboardingOrchestrator, *, evaluator_address: str) -> None:
