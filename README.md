@@ -14,6 +14,29 @@ This repository contains three of the four workstreams:
 
 See [CLAUDE.md](CLAUDE.md) for the full architecture.
 
+## Architecture
+
+![TrustRail architecture](docs/architecture.png)
+
+Read it in three bands. **Composite** services orchestrate and hold no
+authority of their own. **Atomic** services each do one thing — and the Verifier
+is a pure function that looks nothing up, because everything it needs is
+assembled into its request. **Agents** are ours and internal: the Browser Agent
+holds no key at all, which is exactly why it cannot write itself a clean risk
+score, while the Evaluator signs its findings with one the Agent Registry knows.
+
+Two arrows carry most of the argument. The Mandate Service registers each mandate
+onchain under `REGISTRAR_ROLE`, and the Settlement Worker spends under
+`SETTLER_ROLE` — two different keys reaching the same contract, which is what
+makes "a compromised settlement worker still cannot exceed the cap" a fact about
+the deployment rather than a claim about our code.
+
+What the diagram shows logically, the deployment realises as a single CloudFront
+distribution: the React app from S3 and the rail under `/api`, sharing one origin
+so CORS never enters the picture. See [the AWS section of
+CLAUDE.md](CLAUDE.md#aws) for what is actually running, and what is still the
+plan rather than the reality.
+
 ## Quick start
 
 ```bash
