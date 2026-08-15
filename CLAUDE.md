@@ -10,6 +10,10 @@ This project has a knowledge graph at graphify-out/ with god nodes, community st
 cross-file relationships.
 
 Rules:
+- **Before writing code on workstream B, C or D, read [contracts/README.md](contracts/README.md).**
+  Workstream A owns the wire contract and it is already committed: schemas in
+  `contracts/schemas/`, worked examples in `contracts/fixtures/`. Code against those files, not
+  against a running service. The README has a section per workstream.
 - For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json
   exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"`
   for focused concepts. These return a scoped subgraph, usually much smaller than
@@ -359,9 +363,17 @@ map, WAF, Settlement Worker as its own service (fold into Verifier and go synchr
 Four independent tracks, roughly equal. Written for a team of 4. Collapse to 3 by folding D
 into A and B. Expand to 5 by splitting C into contract work and settlement work.
 
-The tracks are decoupled by **contract-first setup**: on hour one, agree the JSON shapes for
-mandate, charge, evaluator output, and verdict, and commit them as fixtures. After that
-everyone codes against fixtures, not against each other's running services. Nobody blocks.
+The tracks are decoupled by **contract-first setup**: agree the JSON shapes for mandate,
+charge, evaluator output, and verdict, and commit them as fixtures. After that everyone codes
+against fixtures, not against each other's running services. Nobody blocks.
+
+**This is done. Read [contracts/README.md](contracts/README.md) before writing code on any
+track.** It has a section per workstream naming the specific thing that will bite you. The
+shapes live in `contracts/schemas/`, worked examples in `contracts/fixtures/` (one per scenario
+we claim to stop, with the verdict each must produce), and the table of what each fixture proves
+in `contracts/FIXTURES.md`. Regenerate with `python -m trustrail.contracts.export`; the output
+is deterministic, so a dirty `git diff` means the wire contract moved and A owes everyone a
+heads-up.
 
 ### A. Mandate and Verifier (the core)
 - Mandate Service: mint, revoke, kill switch, KMS signing
@@ -378,6 +390,14 @@ everyone codes against fixtures, not against each other's running services. Nobo
 - Evaluator Agent: intent match, price check, injection detection, structured risk score
 - Untrusted input handling: schema validation, field length caps, no prompt interpolation
 - Depends only on the fixture shapes, not on A being finished
+- **Read [contracts/README.md](contracts/README.md) first.** Two things there are easy to miss
+  and both make the Verifier reject you: the Evaluator must **sign** its output with a key
+  registered in the Agent Registry, and it must fill in `subject` (mandate id, basket hash,
+  amount). Without `subject` the signature buys nothing, because a clean score from a S$4
+  toothbrush could be replayed onto a S$4000 gift card. Use
+  `trustrail.signing.evidence.evaluation_digest` so we cannot disagree about whitespace. Also:
+  `charge.payout_address` must be the platform's registered address, never one taken from a
+  listing payload.
 
 ### C. Chain and settlement
 - MandateRegistry contract, Fuji testnet first, then mainnet
@@ -386,6 +406,15 @@ everyone codes against fixtures, not against each other's running services. Nobo
 - Settlement Worker: SQS consumer, KMS signing, `spend()` call, tx hash writeback
 - StraitsX card MCP adapter as the fallback rail
 - Highest risk track. If this slips, the demo has no revert moment.
+- **Read [contracts/README.md](contracts/README.md) first.** The mandate digest is the
+  cross-workstream contract: MandateRegistry must recompute the identical EIP-712 value in
+  Solidity or `spend()` will not match what we signed. The type string is in
+  `src/trustrail/signing/eip712.py` and `tests/test_eip712.py` pins a golden digest for the
+  canonical demo mandate. **Recompute that digest in Solidity on day 1** — it is a 30 minute
+  check now and a very bad surprise during mainnet cutover. If it disagrees, tell A; do not
+  edit the constant. Amounts cross as integer minor units, unbound merchant/basket encode as
+  `address(0)`/`bytes32(0)`, and the EIP-712 domain in `config/verifier.toml` must match the
+  deployed contract. **Confirm XSGD really is 6 decimals against the live token.**
 
 ### D. Platform, frontend, and pitch
 - AWS: Fargate/App Runner, API Gateway, WAF, SQS, DynamoDB, KMS, IAM roles
@@ -394,6 +423,14 @@ everyone codes against fixtures, not against each other's running services. Nobo
 - Frontend: mandate approval UI, streaming decision dashboard, REVIEW approval surface, chat UI
 - Well-Architected slide mapping choices to the five pillars
 - Pitch deck and the 1 minute elevator script
+- **Read [contracts/README.md](contracts/README.md) first.** `Verdict` is the dashboard payload
+  and `verdict.failed_deterministically` decides whether the approval UI renders an override
+  button — if it is true there must be no button, because clicking past a bad signature or an
+  over-cap charge is exactly what would destroy the core claim. Every entry in `verdict.checks`
+  is tagged `DETERMINISTIC` or `JUDGEMENT`; `reason_codes` are stable strings safe to key
+  translations off. The audit feed is `AuditEntry`, and `VERDICT_ISSUED` entries carry the whole
+  verdict. Note the Verifier looks nothing up — the Purchase Orchestrator assembles mandate
+  state, merchant record, evaluator record, kill-switch state and `now` into the request.
 
 ### Integration points
 - End of day 1: A and B integrate against real services, C has testnet settling

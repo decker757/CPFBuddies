@@ -1,0 +1,89 @@
+{
+  "name": "tampered_cap_stale_digest",
+  "description": "The lazy version of the same attack: edit the cap and leave the original digest in place. Caught one check earlier.",
+  "expected": {
+    "decision": "FAIL",
+    "reason_codes": [
+      "MANDATE_DIGEST_MISMATCH"
+    ]
+  },
+  "request": {
+    "signed_mandate": {
+      "mandate": {
+        "mandate_id": "0xf664e3db72b59ea194bfe39ee3ae4eb46e19d6f589c181776c58f641f9807996",
+        "principal": "0x512d5570f2c9c843435f21eb26110c54f4de518b",
+        "agent_id": "browser-1",
+        "max_amount": {
+          "currency": "XSGD",
+          "amount": "5000.00"
+        },
+        "expires_at": "2026-08-15T12:10:00Z",
+        "intent": "toothbrush under $5",
+        "merchant_address": null,
+        "basket_hash": null,
+        "nonce": "0x4b30b214ac74f5ec2b8ff1b06e7f68498edff276ec70726d91949cbc1b799581"
+      },
+      "digest": "0x4a52183cc1bf6bc799f10ce0438cb0e0d87b182803c6be96bc7f17bcfe16db35",
+      "signature": "0xb1cc89099c2625f28141ef5a6db2d41a840b35426d6f59efd7d40b4ad28c8d2259e1af6c7295b7420d2fe208d45b763ec6c2a40fd2caf5fd29ecfc31333174121c"
+    },
+    "charge": {
+      "charge_id": "0xabe7328a56e501cdf16ebc5fc0bf21541f0a2a608986d2750251da8417d3b0a8",
+      "mandate_id": "0xf664e3db72b59ea194bfe39ee3ae4eb46e19d6f589c181776c58f641f9807996",
+      "merchant_id": "mrc_sgmart",
+      "payout_address": "0x0f7d88208321581cc8549b9c754b538d9a0c54a1",
+      "amount": {
+        "currency": "XSGD",
+        "amount": "4.20"
+      },
+      "basket_hash": "0x0445d012cf78010af55d53f6e39b6ca5825ee1788a1e62a2fe531a632147a1af",
+      "quote_id": "q_01HX7TDEMO",
+      "sku": "TB-SOFT-2PK",
+      "title": "Soft bristle toothbrush, 2 pack",
+      "quantity": 1
+    },
+    "evaluation": {
+      "evaluation": {
+        "evaluator_id": "evaluator-1",
+        "subject": {
+          "mandate_id": "0xf664e3db72b59ea194bfe39ee3ae4eb46e19d6f589c181776c58f641f9807996",
+          "basket_hash": "0x0445d012cf78010af55d53f6e39b6ca5825ee1788a1e62a2fe531a632147a1af",
+          "amount": {
+            "currency": "XSGD",
+            "amount": "4.20"
+          }
+        },
+        "risk_score": 2,
+        "flags": {
+          "intent_match": true,
+          "injection_suspected": false,
+          "price_far_below_market": false,
+          "seller_is_new": false
+        },
+        "reasons": [
+          "Product matches the stated intent.",
+          "Price is within cap."
+        ]
+      },
+      "digest": "0x2a3cb5271e56f2ab02474a21df1c0a182ba36b1cb9a3902f68076e49fbbcff35",
+      "signature": "0xf4462ec1e6f10ac6c617c4ff22884e00d631cabb35f364176bb755be20924e771fdaa9f5842c6eac422de6f23e09cd90ed94f2d53f3aa27fad43749e9508c2801c"
+    },
+    "mandate_state": {
+      "status": "MINTED",
+      "nonce_claimed_by": null
+    },
+    "merchant": {
+      "merchant_id": "mrc_sgmart",
+      "name": "SG Mart",
+      "payout_address": "0x0f7d88208321581cc8549b9c754b538d9a0c54a1",
+      "is_active": true
+    },
+    "evaluator": {
+      "agent_id": "evaluator-1",
+      "role": "EVALUATOR",
+      "address": "0x1563915e194d8cfba1943570603f7606a3115508",
+      "is_active": true
+    },
+    "kill_switch_active": false,
+    "now": "2026-08-15T12:00:00Z"
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies this system can parse.\n\nOnly XSGD is settleable — that is a track rule, enforced by the Verifier\nrather than by this enum. The others exist because a merchant can quote in\nthem, and we would rather reject that with a reason code than fail to parse\nthe payload at all.",
+      "enum": [
+        "XSGD",
+        "SGD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "description": "A non-negative amount in a known currency.\n\nEquality and ordering compare exact minor units. Comparing across\ncurrencies raises: the Verifier rejects a currency mismatch with a reason\ncode before any comparison happens, so reaching that raise means a caller\nskipped the pipeline.",
+      "properties": {
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "amount": {
+          "title": "Amount",
+          "type": "string"
+        }
+      },
+      "required": [
+        "currency",
+        "amount"
+      ],
+      "title": "Money",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A settlement request bound to exactly one mandate.",
+  "properties": {
+    "charge_id": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "title": "Charge Id",
+      "type": "string"
+    },
+    "mandate_id": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "title": "Mandate Id",
+      "type": "string"
+    },
+    "merchant_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Merchant Id",
+      "type": "string"
+    },
+    "payout_address": {
+      "description": "Where the merchant claims funds should go. Never used as-is: the Verifier requires it to equal the address on file in the Merchant Registry, which is what stops a scam sub-seller redirecting funds.",
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "title": "Payout Address",
+      "type": "string"
+    },
+    "amount": {
+      "$ref": "#/$defs/Money"
+    },
+    "basket_hash": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "title": "Basket Hash",
+      "type": "string"
+    },
+    "quote_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Quote Id",
+      "type": "string"
+    },
+    "sku": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Sku",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "quantity": {
+      "maximum": 1000,
+      "minimum": 1,
+      "title": "Quantity",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "charge_id",
+    "mandate_id",
+    "merchant_id",
+    "payout_address",
+    "amount",
+    "basket_hash",
+    "quote_id",
+    "sku",
+    "title",
+    "quantity"
+  ],
+  "title": "Charge",
+  "type": "object"
+}
