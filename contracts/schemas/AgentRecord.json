@@ -1,0 +1,42 @@
+{
+  "$defs": {
+    "AgentRole": {
+      "enum": [
+        "BROWSER",
+        "EVALUATOR"
+      ],
+      "title": "AgentRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An internal agent that signs its output for the audit trail.\n\nRegistering the Evaluator's key is what stops a compromised Browser Agent\nforging itself a clean risk score.",
+  "properties": {
+    "agent_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/AgentRole"
+    },
+    "address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "title": "Address",
+      "type": "string"
+    },
+    "is_active": {
+      "default": true,
+      "title": "Is Active",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "agent_id",
+    "role",
+    "address"
+  ],
+  "title": "AgentRecord",
+  "type": "object"
+}

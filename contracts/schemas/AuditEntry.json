@@ -1,0 +1,233 @@
+{
+  "$defs": {
+    "AuditEventType": {
+      "enum": [
+        "MANDATE_MINTED",
+        "MANDATE_BOUND",
+        "MANDATE_REVOKED",
+        "MANDATE_CONSUMED",
+        "KILL_SWITCH_SET",
+        "VERDICT_ISSUED"
+      ],
+      "title": "AuditEventType",
+      "type": "string"
+    },
+    "CheckKind": {
+      "description": "Why a check has the authority it has.\n\nDETERMINISTIC checks are facts — a signature either verifies or it does not.\nJUDGEMENT checks are thresholds and LLM findings, tunable in config.",
+      "enum": [
+        "DETERMINISTIC",
+        "JUDGEMENT"
+      ],
+      "title": "CheckKind",
+      "type": "string"
+    },
+    "CheckResult": {
+      "additionalProperties": false,
+      "description": "One check and what it concluded. PASS means the check was satisfied.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/CheckKind"
+        },
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasonCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "decision"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    },
+    "Decision": {
+      "enum": [
+        "PASS",
+        "REVIEW",
+        "FAIL"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "ReasonCode": {
+      "description": "Stable codes. The dashboard and the audit log render these directly.",
+      "enum": [
+        "MANDATE_DIGEST_MISMATCH",
+        "MANDATE_SIGNATURE_INVALID",
+        "MANDATE_EXPIRED",
+        "MANDATE_REVOKED",
+        "MANDATE_ALREADY_CONSUMED",
+        "KILL_SWITCH_ACTIVE",
+        "NONCE_REPLAYED",
+        "CHARGE_MANDATE_MISMATCH",
+        "CURRENCY_MISMATCH",
+        "CURRENCY_NOT_SETTLEABLE",
+        "CHARGE_OVER_CAP",
+        "MERCHANT_NOT_REGISTERED",
+        "MERCHANT_INACTIVE",
+        "PAYOUT_ADDRESS_MISMATCH",
+        "MERCHANT_BINDING_MISMATCH",
+        "BASKET_BINDING_MISMATCH",
+        "EVALUATOR_NOT_REGISTERED",
+        "EVALUATOR_SIGNATURE_INVALID",
+        "EVALUATOR_SUBJECT_MISMATCH",
+        "RISK_SCORE_CRITICAL",
+        "RISK_SCORE_REVIEW_BAND",
+        "INTENT_MISMATCH_SUSPECTED",
+        "INJECTION_SUSPECTED",
+        "SUSPICIOUS_SELLER_PRICING"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    },
+    "Verdict": {
+      "additionalProperties": false,
+      "description": "The Verifier's answer, with the full trace that produced it.",
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        },
+        "reason_codes": {
+          "items": {
+            "$ref": "#/$defs/ReasonCode"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "mandate_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Mandate Id",
+          "type": "string"
+        },
+        "charge_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Charge Id",
+          "type": "string"
+        },
+        "risk_score": {
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Risk Score",
+          "type": "integer"
+        },
+        "evaluated_at": {
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "verifier_version": {
+          "title": "Verifier Version",
+          "type": "string"
+        },
+        "config_version": {
+          "title": "Config Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "reason_codes",
+        "checks",
+        "mandate_id",
+        "charge_id",
+        "risk_score",
+        "evaluated_at",
+        "verifier_version",
+        "config_version"
+      ],
+      "title": "Verdict",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One immutable record. Ordered by `occurred_at` within a mandate.",
+  "properties": {
+    "event_id": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "mandate_id": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "title": "Mandate Id",
+      "type": "string"
+    },
+    "event_type": {
+      "$ref": "#/$defs/AuditEventType"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "actor": {
+      "description": "Who or what caused this: a service name, an agent id, or the principal for a human approval.",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Actor",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Verdict"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Present on VERDICT_ISSUED, carrying the full check trace."
+    }
+  },
+  "required": [
+    "event_id",
+    "mandate_id",
+    "event_type",
+    "occurred_at",
+    "actor",
+    "summary"
+  ],
+  "title": "AuditEntry",
+  "type": "object"
+}

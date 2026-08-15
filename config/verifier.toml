@@ -1,0 +1,43 @@
+# Verifier settings.
+#
+# Thresholds live here, not in code, because they get tuned during demo
+# rehearsal. Every verdict carries a fingerprint of this file as
+# `config_version`, so a change is visible in the audit trail rather than
+# making two verdicts silently disagree.
+#
+# Top-level settings can be overridden from the environment with a TRUSTRAIL_
+# prefix, e.g. TRUSTRAIL_ISSUER_ADDRESS, and the environment wins. The [domain]
+# table is file-only on purpose — which chain and which contract we trust should
+# be written down and reviewed, not passed in at runtime.
+#
+# Nothing here is secret: the issuer address is public, and the key it belongs
+# to never leaves KMS.
+
+# The address whose signatures make a mandate authentic. This default is the
+# demo fixture issuer; deployments override it with the address of the KMS key.
+issuer_address = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a"
+
+# XSGD on Avalanche C-Chain. A charge in anything else is a deterministic FAIL.
+settlement_currency = "XSGD"
+
+# Risk bands. 1-3 settles, 4-7 asks a human, 8-10 fails.
+pass_score_max = 3
+review_score_max = 7
+
+# Expiry is brought forward by this much, never pushed back: a mandate may
+# expire early, which costs a retry, but must never expire late.
+clock_skew_seconds = 30
+
+# How long a held charge waits for a human. Capped again at verification time by
+# the mandate's own expiry, so no REVIEW can outlive what it is reviewing.
+review_hold_seconds = 600
+
+[domain]
+# EIP-712 domain. The MandateRegistry contract must be deployed with exactly
+# these values or its digests will not match ours.
+name = "TrustRail"
+version = "1"
+# 43113 is Fuji, 43114 is Avalanche C-Chain mainnet. Cutover is this line.
+chain_id = 43113
+# Set to the deployed MandateRegistry address once workstream C has one.
+verifying_contract = "0x0000000000000000000000000000000000000000"

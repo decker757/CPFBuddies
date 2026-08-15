@@ -1,0 +1,511 @@
+{
+  "$defs": {
+    "AgentRecord": {
+      "additionalProperties": false,
+      "description": "An internal agent that signs its output for the audit trail.\n\nRegistering the Evaluator's key is what stops a compromised Browser Agent\nforging itself a clean risk score.",
+      "properties": {
+        "agent_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/AgentRole"
+        },
+        "address": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "Address",
+          "type": "string"
+        },
+        "is_active": {
+          "default": true,
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent_id",
+        "role",
+        "address"
+      ],
+      "title": "AgentRecord",
+      "type": "object"
+    },
+    "AgentRole": {
+      "enum": [
+        "BROWSER",
+        "EVALUATOR"
+      ],
+      "title": "AgentRole",
+      "type": "string"
+    },
+    "Charge": {
+      "additionalProperties": false,
+      "description": "A settlement request bound to exactly one mandate.",
+      "properties": {
+        "charge_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Charge Id",
+          "type": "string"
+        },
+        "mandate_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Mandate Id",
+          "type": "string"
+        },
+        "merchant_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Merchant Id",
+          "type": "string"
+        },
+        "payout_address": {
+          "description": "Where the merchant claims funds should go. Never used as-is: the Verifier requires it to equal the address on file in the Merchant Registry, which is what stops a scam sub-seller redirecting funds.",
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "Payout Address",
+          "type": "string"
+        },
+        "amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "basket_hash": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Basket Hash",
+          "type": "string"
+        },
+        "quote_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Quote Id",
+          "type": "string"
+        },
+        "sku": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Sku",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "quantity": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Quantity",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "charge_id",
+        "mandate_id",
+        "merchant_id",
+        "payout_address",
+        "amount",
+        "basket_hash",
+        "quote_id",
+        "sku",
+        "title",
+        "quantity"
+      ],
+      "title": "Charge",
+      "type": "object"
+    },
+    "Currency": {
+      "description": "Currencies this system can parse.\n\nOnly XSGD is settleable — that is a track rule, enforced by the Verifier\nrather than by this enum. The others exist because a merchant can quote in\nthem, and we would rather reject that with a reason code than fail to parse\nthe payload at all.",
+      "enum": [
+        "XSGD",
+        "SGD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "EvaluationSubject": {
+      "additionalProperties": false,
+      "description": "Exactly what was evaluated, so the verdict cannot be reused elsewhere.",
+      "properties": {
+        "mandate_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Mandate Id",
+          "type": "string"
+        },
+        "basket_hash": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Basket Hash",
+          "type": "string"
+        },
+        "amount": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": [
+        "mandate_id",
+        "basket_hash",
+        "amount"
+      ],
+      "title": "EvaluationSubject",
+      "type": "object"
+    },
+    "EvaluatorFlags": {
+      "additionalProperties": false,
+      "description": "Structured findings. Each one maps to a judgement check in the Verifier.",
+      "properties": {
+        "intent_match": {
+          "description": "Does the candidate product match what the buyer asked for, or is it a substitution?",
+          "title": "Intent Match",
+          "type": "boolean"
+        },
+        "injection_suspected": {
+          "description": "Does the listing text contain instructions aimed at the agent?",
+          "title": "Injection Suspected",
+          "type": "boolean"
+        },
+        "price_far_below_market": {
+          "title": "Price Far Below Market",
+          "type": "boolean"
+        },
+        "seller_is_new": {
+          "title": "Seller Is New",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intent_match",
+        "injection_suspected",
+        "price_far_below_market",
+        "seller_is_new"
+      ],
+      "title": "EvaluatorFlags",
+      "type": "object"
+    },
+    "EvaluatorOutput": {
+      "additionalProperties": false,
+      "description": "A risk score with its evidence. Structured output only, never free text.",
+      "properties": {
+        "evaluator_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/EvaluationSubject"
+        },
+        "risk_score": {
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Risk Score",
+          "type": "integer"
+        },
+        "flags": {
+          "$ref": "#/$defs/EvaluatorFlags"
+        },
+        "reasons": {
+          "items": {
+            "maxLength": 280,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "evaluator_id",
+        "subject",
+        "risk_score",
+        "flags",
+        "reasons"
+      ],
+      "title": "EvaluatorOutput",
+      "type": "object"
+    },
+    "Mandate": {
+      "additionalProperties": false,
+      "description": "The struct that gets hashed and signed. Field order matches EIP-712.",
+      "properties": {
+        "mandate_id": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Mandate Id",
+          "type": "string"
+        },
+        "principal": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "Principal",
+          "type": "string"
+        },
+        "agent_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "max_amount": {
+          "$ref": "#/$defs/Money"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "intent": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Intent",
+          "type": "string"
+        },
+        "merchant_address": {
+          "anyOf": [
+            {
+              "pattern": "^0x[0-9a-fA-F]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merchant Address"
+        },
+        "basket_hash": {
+          "anyOf": [
+            {
+              "pattern": "^0x[0-9a-fA-F]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Basket Hash"
+        },
+        "nonce": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Nonce",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mandate_id",
+        "principal",
+        "agent_id",
+        "max_amount",
+        "expires_at",
+        "intent",
+        "nonce"
+      ],
+      "title": "Mandate",
+      "type": "object"
+    },
+    "MandateState": {
+      "additionalProperties": false,
+      "description": "Storage-side facts the Verifier cannot derive from the signed struct.\n\nPassed *into* the Verifier rather than looked up by it — that is what keeps\nthe Verifier a pure function with no network calls.",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/MandateStatus"
+        },
+        "nonce_claimed_by": {
+          "anyOf": [
+            {
+              "pattern": "^0x[0-9a-fA-F]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The mandate id that first claimed this nonce. If it is some other mandate, the nonce has been reused and the charge is a replay.",
+          "title": "Nonce Claimed By"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "MandateState",
+      "type": "object"
+    },
+    "MandateStatus": {
+      "description": "Lifecycle of a mandate. Only MINTED and BOUND can still spend.",
+      "enum": [
+        "MINTED",
+        "BOUND",
+        "CONSUMED",
+        "REVOKED"
+      ],
+      "title": "MandateStatus",
+      "type": "string"
+    },
+    "MerchantRecord": {
+      "additionalProperties": false,
+      "description": "A registered merchant platform.\n\nThe registry knows the *platform*, not the sellers on it. `payout_address`\nis the whole point: XSGD can only ever reach this address, so a scam seller\ninside an otherwise legitimate marketplace cannot redirect funds, and the\nplatform stays accountable for its own sellers.",
+      "properties": {
+        "merchant_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Merchant Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "payout_address": {
+          "pattern": "^0x[0-9a-fA-F]{40}$",
+          "title": "Payout Address",
+          "type": "string"
+        },
+        "is_active": {
+          "default": true,
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "merchant_id",
+        "name",
+        "payout_address"
+      ],
+      "title": "MerchantRecord",
+      "type": "object"
+    },
+    "Money": {
+      "additionalProperties": false,
+      "description": "A non-negative amount in a known currency.\n\nEquality and ordering compare exact minor units. Comparing across\ncurrencies raises: the Verifier rejects a currency mismatch with a reason\ncode before any comparison happens, so reaching that raise means a caller\nskipped the pipeline.",
+      "properties": {
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "amount": {
+          "title": "Amount",
+          "type": "string"
+        }
+      },
+      "required": [
+        "currency",
+        "amount"
+      ],
+      "title": "Money",
+      "type": "object"
+    },
+    "SignedEvaluatorOutput": {
+      "additionalProperties": false,
+      "description": "Evaluator output plus its signature.\n\nThe digest here is a keccak256 over canonical JSON rather than EIP-712: this\npayload is evidence for the offchain Verifier and never reaches a contract,\nso there is nothing to recompute in Solidity.",
+      "properties": {
+        "evaluation": {
+          "$ref": "#/$defs/EvaluatorOutput"
+        },
+        "digest": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "signature": {
+          "pattern": "^0x[0-9a-fA-F]{130}$",
+          "title": "Signature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation",
+        "digest",
+        "signature"
+      ],
+      "title": "SignedEvaluatorOutput",
+      "type": "object"
+    },
+    "SignedMandate": {
+      "additionalProperties": false,
+      "description": "A mandate plus the issuer's signature over its EIP-712 digest.\n\n`digest` is carried for the audit trail and for track C's `spend()` call,\nbut it is never trusted: the Verifier recomputes it from `mandate` and\nfails the charge if the two disagree.",
+      "properties": {
+        "mandate": {
+          "$ref": "#/$defs/Mandate"
+        },
+        "digest": {
+          "pattern": "^0x[0-9a-fA-F]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "signature": {
+          "pattern": "^0x[0-9a-fA-F]{130}$",
+          "title": "Signature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mandate",
+        "digest",
+        "signature"
+      ],
+      "title": "SignedMandate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A charge, its mandate, the evidence, and the state needed to judge them.",
+  "properties": {
+    "signed_mandate": {
+      "$ref": "#/$defs/SignedMandate"
+    },
+    "charge": {
+      "$ref": "#/$defs/Charge"
+    },
+    "evaluation": {
+      "$ref": "#/$defs/SignedEvaluatorOutput"
+    },
+    "mandate_state": {
+      "$ref": "#/$defs/MandateState"
+    },
+    "merchant": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MerchantRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "None means the Merchant Registry had no record — an unregistered counterparty, which is a deterministic FAIL."
+    },
+    "evaluator": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "None means the Agent Registry had no record for the evaluator that signed the evidence."
+    },
+    "kill_switch_active": {
+      "default": false,
+      "title": "Kill Switch Active",
+      "type": "boolean"
+    },
+    "now": {
+      "format": "date-time",
+      "title": "Now",
+      "type": "string"
+    }
+  },
+  "required": [
+    "signed_mandate",
+    "charge",
+    "evaluation",
+    "mandate_state",
+    "now"
+  ],
+  "title": "VerificationRequest",
+  "type": "object"
+}

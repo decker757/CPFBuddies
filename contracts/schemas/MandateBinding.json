@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "description": "The only two fields a binding may fill in.\n\nExpressing it as a type rather than as two loose arguments is what makes\n\"approving a REVIEW cannot widen the mandate\" structural: there is no field\nhere for the cap or the expiry, so no binding can touch them.",
+  "properties": {
+    "merchant_address": {
+      "pattern": "^0x[0-9a-fA-F]{40}$",
+      "title": "Merchant Address",
+      "type": "string"
+    },
+    "basket_hash": {
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "title": "Basket Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "merchant_address",
+    "basket_hash"
+  ],
+  "title": "MandateBinding",
+  "type": "object"
+}
