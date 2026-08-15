@@ -31,7 +31,7 @@ Rules:
   between services, run `graphify path "<A>" "<B>"` to check you are not creating a cycle or
   bypassing the Verifier.
 
-## Where we are — 2026-08-15
+## Where we are — 2026-08-16
 
 **The rail settles real money on Avalanche C-Chain Mainnet.** One purchase intent goes end to
 end: mandate minted and registered onchain, Browser Agent picks from the stub marketplace,
@@ -46,12 +46,34 @@ Evaluator scores and signs, Verifier decides, Settlement Worker calls `spend()`,
 | REGISTRAR_ROLE | `0x664C05A1183F93369d8B7986De86d9fB51263446` |
 | SETTLER_ROLE | `0x1920dBEA4BFa66dDF8c30a0577b88D1E7805533c` |
 | First settlement | tx `0x0b6584f3a596f14de8c3294463ddce2c05d242f54ca08b28ae49a7091dcb4847` — 4.20 XSGD |
+| **The revert** | tx `0xacc7fee216111a8a1ef68e6eaa773bc3a12b7c33883feebd9c221da3b09cce3e` — `AmountExceedsCap` |
 
 The two roles are separate keys and the admin wallet holds neither, so it can manage roles but
 can neither register a mandate nor spend one. That is demonstrable: point the settler at
 `registerMandate` and watch it revert.
 
 Addresses come from `onchain/deployments/avalanche.json`. Never copy one into Python config.
+
+### The revert
+
+**The demo's closing beat exists on mainnet.** `scripts/demo_revert.py` mints a real mandate
+capped at 5.00 XSGD, then calls `spend()` for 50.00 as the settler — past the Verifier, past
+the orchestrator, past the rail's own preflight. That is a fully compromised Settlement
+Worker, and Solidity is the only thing left in the way.
+
+Block 92890855, status 0, 34,660 gas, 0.000037 AVAX. **Zero logs — no `Spent` event, no ERC-20
+`Transfer`.** The merchant's balance was 4.70 XSGD before and 4.70 after, and the mandate came
+out still `isSpendable` and unconsumed. A revert is not a state change; it is the absence of
+one, and the empty log array is how you show that rather than assert it.
+
+Re-run it any time: `.venv/bin/python scripts/demo_revert.py`. Two transactions, about
+0.0002 AVAX, no XSGD — the cap check runs before the transfer, so the buyer is never touched.
+
+**Verify the contract on Snowtrace before demoing this.** It is unverified today
+(`getsourcecode` returns "Contract source code not verified"), so the explorer renders a
+generic failure and a raw selector instead of `AmountExceedsCap(mandateId, cap, requested)`.
+The whole point is that a judge reads the reason off a public explorer, not off our slides.
+`SNOWTRACE_API_KEY` is already in `onchain/.env`.
 
 ### Done
 
@@ -60,26 +82,35 @@ Addresses come from `onchain/deployments/avalanche.json`. Never copy one into Py
 - **B** — stub marketplace, Browser Agent, Evaluator, signed evidence the Verifier accepts.
 - **C** — MandateRegistry live on mainnet, x402 onchain rail, Settlement Worker, EIP-3009
   signing for the StraitsX card rail.
-- 353 tests, 16 of them against a live chain.
+- **D** — Purchase and Onboarding Orchestrators, the audit feed, and the frontend: intent bar,
+  streaming decision timeline, REVIEW modal, outcome card. It streams over SSE
+  (`GET /audit/stream`, `EventSource` with `Last-Event-ID` replay), not a poll.
+- 424 tests. 15 need a local Hardhat node and skip without one, so a plain `pytest` run
+  reports 409 passed, 15 skipped.
 
 ### Not done, in the order worth doing
 
-1. **The revert demo (step 7).** Never rehearsed against a public explorer. It is the moment
-   this pitch is built around and there is currently no artifact for it. Force a charge over
-   the cap on mainnet and capture the reverted transaction. Costs a fraction of a cent.
-2. **Frontend.** Nothing exists — no approval UI, no dashboard, no REVIEW surface, no chat.
-   There is also no SSE or websocket endpoint to stream from, and CLAUDE.md requires the
-   dashboard to stream rather than poll. The audit log already carries everything it needs:
-   `VERDICT_ISSUED` entries hold the full check trace with each check tagged `DETERMINISTIC`
-   or `JUDGEMENT`.
+1. ~~The revert demo (step 7).~~ **Done — captured on mainnet.** See "The revert" below.
+2. **Walk the frontend end to end.** It builds clean and it is unit-tested, but nobody has
+   run the browser against a live API against the chain. Read `frontend/README.md` before
+   rehearsing: the Browser Agent picks by lowest price, so an honest "toothbrush under $5"
+   cannot reach the PASS beat — the good S$4.20 listing is undercut by the injected one at
+   S$4.00 and the unrated seller's at S$0.50. Each beat needs `TRUSTRAIL_DEMO_SKU` pinned
+   and the API restarted. That is five restarts nobody has timed.
+   Gaps its README admits: light theme only, one purchase at a time, no auth. Missing
+   entirely: the stub marketplace page, which was always the first cut.
 3. **AWS and KMS.** Nothing is provisioned and every store is in-memory, so a restart loses
    every mandate, hold and queued charge. `DynamoMandateStore`, `DynamoAuditLog`, `SqsQueue`
    and `KmsSigner` are all already written behind the ports — this is provisioning and wiring,
    not new code. **KMS matters beyond the prize:** the registrar and settler keys currently sit
    in gitignored `.env` files, which contradicts "no private key material anywhere else".
-4. **Card rail wiring.** `StraitsXCardRail` is built and tested against the real sandbox
-   shapes but nothing passes it to `build_rail`. See the rail's own docstring first — its
-   enforcement is weaker than the contract's, and that has to be said out loud.
+4. **Card rail wiring — optional, and probably not worth it.** `StraitsXCardRail` is built
+   and unit-tested but nothing passes it to `build_rail`. Its enforcement is weaker than the
+   contract's, it cannot express the S$4.20 demo charge (whole SGD, S$5-30), and it cannot
+   complete a purchase. It buys **coverage, not safety**: merchants who take Visa and have
+   never integrated the two endpoints. Wire it only if the StraitsX track needs a product
+   integration rather than settling in XSGD — see Adapters below for what our StraitsX
+   footprint actually is.
 
 ### Gotchas found the hard way
 
@@ -326,8 +357,9 @@ the registered payout address regardless of what a listing claims.
   against a local Hardhat node (16 integration tests, real transfers, real reverts decoded),
   and mainnet gas turned out to cost a fraction of a cent, so a mistake was cheap. Fuji still
   has one thing local does not: Hardhat refuses to broadcast a doomed transaction, so the
-  **revert demo cannot be rehearsed locally**. That now has to happen on mainnet, where it is
-  more compelling anyway.
+  **revert demo cannot be rehearsed locally**. It was done on mainnet instead, where it is
+  more compelling anyway — `scripts/demo_revert.py`, and the tx is in "The revert" above.
+  The script refuses to run on any chain without a block explorer for this reason.
 
 ## Offchain vs onchain split
 
@@ -340,12 +372,23 @@ injection inspection). These physically cannot run onchain.
 Keep rail selection behind one interface so the mandate check is rail-agnostic.
 
 - `x402 + XSGD onchain` LIVE
-- `StraitsX card-issuing MCP` LIVE (sandbox then production)
+- `StraitsX card-issuing HTTP API` BUILT, NOT WIRED. 19 unit tests against a 402 challenge
+  captured verbatim from the sandbox, but `httpx.MockTransport` serves it — the code has
+  never made a live call, and nothing passes the rail to `build_rail`. **It is not MCP.**
+  The MCP server is an agent-facing wrapper that hands an agent this URL and these steps;
+  the payment itself is plain HTTPS, so there is no MCP client in this repo and there would
+  not be one even if the rail were wired. Do not claim an MCP integration.
 - `AP2` interface slot, NOT IMPLEMENTED
 - `Identity Adapter (Visa TAP / Mastercard KYA)` slot, NOT IMPLEMENTED. Belongs to Agent
   Registry, not Settlement Worker.
 
 Do not write code that implies Visa or Google integration exists. Slots stay stubs.
+
+
+
+**We call no StraitsX service.** No endpoint, no credentials, no account, no MCP. It is an
+asset dependency, not a product integration. Say it that way; both halves are true and the
+distinction is the first thing a judge will probe.
 
 ## AWS
 
@@ -411,7 +454,8 @@ Merchant listing payloads are attacker-controlled. Always:
 7. **Re-run against the poisoned listing.** Description contains an injection telling the agent
    to buy a gift card or overspend. Evaluator flags it, Verifier FAILs, and if the agent is
    forced past that, the contract reverts on mainnet. Show both the rejection log and the
-   reverted tx.
+   reverted tx — `0xacc7fee2…` is already captured, and `scripts/demo_revert.py` produces a
+   fresh one live if you would rather broadcast it in front of them.
 7b. **Show a REVIEW.** Same listing, milder tampering: right product, price suspiciously low,
    unknown seller. Agent pauses, approval UI surfaces the Evaluator's reasons, human kills it.
    This is where the human-in-the-loop story lands.
@@ -422,17 +466,29 @@ Step 7 is what makes judges remember us. Protect it.
 ## Frontend
 
 One small React app hitting the API. No auth, no design system, no component library beyond
-Tailwind. Build after the mandate check and settlement work.
+Tailwind. **Built — see `frontend/`.** What follows is the original spec; the notes say where
+what shipped differs from it.
 
 - **Mandate approval UI.** Human sees the scope in plain language ("up to S$5, next 10
-  minutes") and approves. Makes the mandate visible instead of JSON.
+  minutes") and approves. Makes the mandate visible instead of JSON. — *Folded into the
+  intent bar: the cap is a field the human types and Delegate is the approval. There is no
+  separate pre-mint screen, so do not describe one.*
 - **Decision dashboard.** Live feed of PASS / REVIEW / FAIL with reason codes, risk scores,
   mandate id, and tx hash linking to Snowtrace. Must STREAM (SSE or websocket), not poll on a
-  button press. A row flipping to FAIL in real time lands far harder than a refresh.
+  button press. A row flipping to FAIL in real time lands far harder than a refresh. — *Built
+  as `FlowTimeline`, six beats, SSE.*
 - **REVIEW approval surface.** When a charge holds, show the listing, the price, and the
   Evaluator's reasons. Approve or kill. Can be part of the dashboard rather than its own page.
-- **Buyer agent chat UI.** The intent surface. Where the user types "toothbrush under $5".
-- **Stub marketplace page.** Rendered listing view for the demo merchant. Lowest priority.
+  — *Built as `ReviewModal`.*
+- **Buyer agent chat UI.** The intent surface. Where the user types "toothbrush under $5". —
+  *Built as a one-shot intent bar, not a chat. Call it what it is.*
+- **Stub marketplace page.** Rendered listing view for the demo merchant. Lowest priority. —
+  *Not built.*
+
+Two rules the app keeps, and must keep: `verdict.failed_deterministically` and
+`hold.approvable` come from the server and are never re-derived in TypeScript, because they
+decide whether an override button may exist at all; and no `dangerouslySetInnerHTML`
+anywhere, because listing text is attacker-controlled by design.
 
 ## Build order
 
@@ -442,7 +498,8 @@ Tailwind. Build after the mandate check and settlement work.
 4. ~~Settlement leg with real XSGD~~ **done — 4.20 XSGD settled on C-Chain**
 5. ~~Browser Agent plus Evaluator Agent~~ **done**
 6. ~~Agent Registry~~ **done — seeded in memory, which CLAUDE.md permits**
-7. **Frontend — the only item never started.** See "Where we are" at the top.
+7. ~~Frontend~~ **done — builds clean, streams over SSE. Never walked end to end against a
+   live API and a live chain; that rehearsal is what is left.** See "Where we are" at the top.
 
 Cuts if time runs out, in order: stub marketplace UI, B2B coda, Agent Registry beyond a static
 map, WAF, Settlement Worker as its own service (fold into Verifier and go synchronous).
