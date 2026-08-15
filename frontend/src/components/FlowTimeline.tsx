@@ -1,59 +1,79 @@
 import { useState } from 'react'
 
 import type { Step } from '../steps'
-import type { AuditEntry, Verdict } from '../types'
-import { KindTag, ReasonCode, RiskChip, StatusBadge } from './StatusBadge'
+import type { AuditEntry, Charge, Verdict } from '../types'
+import { KindTag, ReasonCode, StatusBadge } from './StatusBadge'
 
 /**
- * Snowtrace. Hardcoded because settlement is XSGD on Avalanche C-Chain and
- * that is a track rule, not a deployment choice.
+ * Snowtrace. Hardcoded because settlement is XSGD on Avalanche C-Chain and that
+ * is a track rule, not a deployment choice.
  */
 const EXPLORER = 'https://snowtrace.io/tx/'
-//: Global, for splitting. `.test()` is stateful on a /g regex and would return
-//: alternating answers for the same input, so the check below uses its own.
-const TX_HASH_SPLIT = /(0x[0-9a-fA-F]{64})/g
-const IS_TX_HASH = /^0x[0-9a-fA-F]{64}$/
+//: Global is safe with `String.match`, which returns every match and leaves no
+//: lastIndex behind -- unlike `.test()`, which is stateful on a /g regex.
+const TX_HASH = /0x[0-9a-fA-F]{64}/g
 
-/**
- * Render a summary, turning any transaction hash inside it into a link.
- *
- * The mint and revoke hashes arrive inside prose -- "registered onchain in
- * 0x…" -- because the Mandate Service talks to a `MandateRegistrar` port and
- * deliberately knows nothing about chains, so it cannot build an explorer URL
- * itself. Recognising one here costs a regex and turns a string nobody can use
- * into the thing the demo ends on.
- *
- * Still text, never markup: the same summaries carry merchant-supplied titles.
- */
-function Summary({ text }: { text: string }) {
+/** What the buyer asked for, so rows can be phrased in their terms. */
+export interface RunContext {
+  cap: string
+  charge: Charge | null
+}
+
+function TxLink({ hash, label }: { hash: string; label?: string }) {
   return (
-    <>
-      {text.split(TX_HASH_SPLIT).map((part, i) =>
-        IS_TX_HASH.test(part) ? (
-          <a
-            key={i}
-            href={`${EXPLORER}${part}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-brand underline underline-offset-2"
-            title={part}
-          >
-            {part.slice(0, 10)}…{part.slice(-6)}
-          </a>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
-      )}
-    </>
+    <a
+      href={`${EXPLORER}${hash}`}
+      target="_blank"
+      rel="noreferrer"
+      className="font-mono text-xs text-brand underline underline-offset-2"
+      title={hash}
+    >
+      {label ?? `${hash.slice(0, 10)}…${hash.slice(-6)}`}
+    </a>
   )
 }
 
+/** The first transaction hash in a string, if it carries one. */
+function hashIn(text: string): string | null {
+  const match = text.match(TX_HASH)
+  return match ? match[0] : null
+}
+
+/**
+ * Plain language for one entry.
+ *
+ * The audit summaries stay precise because they are the record -- they carry
+ * ISO timestamps, SKUs and raw hashes on purpose. None of that is what someone
+ * watching needs, so presentation is decided here rather than by softening the
+ * thing we would show a regulator.
+ *
+ * Returning null means the row's own structured rendering says it better.
+ */
+function describe(entry: AuditEntry, run: RunContext): string | null {
+  switch (entry.event_type) {
+    case 'MANDATE_MINTED':
+      return `Spending limit set: up to ${run.cap} XSGD, for the next 10 minutes. No product chosen yet.`
+    case 'CANDIDATE_SELECTED':
+      // Once the purchase returns we have the charge itself and can drop the
+      // SKU and merchant id, which mean nothing to a viewer.
+      return run.charge
+        ? `${run.charge.title} — ${run.charge.amount.amount} ${run.charge.amount.currency}`
+        : entry.summary
+    case 'MANDATE_BOUND':
+      return 'You approved. The mandate is now locked to this seller and this basket.'
+    case 'MANDATE_REVOKED':
+      return hashIn(entry.summary)
+        ? 'Recorded on the blockchain — the permission is publicly withdrawn.'
+        : 'You rejected it. The permission is cancelled, so a retry cannot reuse it.'
+    case 'MANDATE_CONSUMED':
+      return 'Permission used up. It cannot be spent twice.'
+    default:
+      return null
+  }
+}
+
 function time(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /** Solid means it happened; a ring means it did not, and the tone says how that reads. */
@@ -72,25 +92,19 @@ const RING: Record<Step['tone'], string> = {
 
 function Dot({ state, tone }: { state: Step['state']; tone: Step['tone'] }) {
   if (state === 'done') {
-    return <span className={`mt-1.5 block size-3 rounded-full ${FILL[tone]}`} />
+    return <span className={`mt-2 block size-3 rounded-full ${FILL[tone]}`} />
   }
   if (state === 'active') {
-    // Amber rather than the brand orange: waiting is a status, and the accent
-    // colour is reserved for the wordmark so it stays a stamp.
     const pulse = tone === 'neutral' ? 'bg-review' : FILL[tone]
     return (
-      <span className="relative mt-1.5 block size-3">
+      <span className="relative mt-2 block size-3">
         <span className={`absolute inset-0 animate-ping rounded-full opacity-60 ${pulse}`} />
         <span className={`absolute inset-0 rounded-full ${pulse}`} />
       </span>
     )
   }
-  // Never happened. A hollow marker keeps that distinct from a step that ran
-  // and failed, while the colour still says whether it is bad news.
   return (
-    <span
-      className={`mt-1.5 block size-3 rounded-full border-2 bg-canvas ${RING[tone]}`}
-    />
+    <span className={`mt-2 block size-3 rounded-full border-2 bg-canvas ${RING[tone]}`} />
   )
 }
 
@@ -114,7 +128,6 @@ function CheckTrace({ verdict }: { verdict: Verdict }) {
               <StatusBadge decision={check.decision} size="sm" />
               <KindTag kind={check.kind} />
               <span className="font-mono text-charcoal">{check.name}</span>
-              {check.detail && <span className="text-mute">— {check.detail}</span>}
             </li>
           ))}
         </ul>
@@ -123,39 +136,48 @@ function CheckTrace({ verdict }: { verdict: Verdict }) {
   )
 }
 
-function EntryBody({ entry }: { entry: AuditEntry }) {
+function EntryBody({ entry, run }: { entry: AuditEntry; run: RunContext }) {
+  const plain = describe(entry, run)
+  const hash = hashIn(entry.summary)
+
   return (
     <div className="mt-1">
-      {/* Merchant- and LLM-supplied text. Rendered as text, never as markup. */}
-      <p className="text-sm text-body">
-        <Summary text={entry.summary} />
-      </p>
+      {plain && <p className="text-sm text-body">{plain}</p>}
+
+      {/* Merchant- and LLM-supplied text where we have nothing better. Always
+          text, never markup: this is the injection surface. */}
+      {!plain && !entry.verdict && !entry.evaluation && (
+        <p className="text-sm text-body">{entry.summary}</p>
+      )}
+
+      {hash && (
+        <p className="mt-1 text-xs text-mute">
+          On the blockchain: <TxLink hash={hash} />
+        </p>
+      )}
 
       {entry.evaluation && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <RiskChip score={entry.evaluation.risk_score} />
+        <ul className="mt-1 space-y-1">
           {entry.evaluation.reasons.map((reason, i) => (
-            <span
-              key={i}
-              className="rounded-full bg-surface-bone px-2 py-0.5 text-xs text-charcoal"
-            >
-              {reason}
-            </span>
+            <li key={i} className="text-sm text-body">
+              — {reason}
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {entry.verdict && (
         <>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <StatusBadge decision={entry.verdict.decision} />
             {entry.verdict.reason_codes.map((code) => (
               <ReasonCode key={code} code={code} />
             ))}
           </div>
           {entry.verdict.failed_deterministically && (
-            <p className="mt-2 text-xs font-semibold text-fail">
-              This was a fact, not a threshold. No one may override it.
+            <p className="mt-2 text-sm font-semibold text-fail">
+              This one is a fact, not a judgement call. Nobody can approve past it — a
+              bigger purchase needs a new spending limit.
             </p>
           )}
           <CheckTrace verdict={entry.verdict} />
@@ -167,28 +189,20 @@ function EntryBody({ entry }: { entry: AuditEntry }) {
           href={entry.settlement.explorer_url}
           target="_blank"
           rel="noreferrer"
-          className="mt-2 inline-block font-mono text-xs text-brand underline underline-offset-2"
+          className="mt-2 inline-flex h-10 items-center rounded-full bg-ink px-5 text-sm font-semibold text-on-dark"
         >
-          {entry.settlement.reference?.slice(0, 18)}… — open on Snowtrace
+          View the payment on Snowtrace
         </a>
       )}
     </div>
   )
 }
 
-export function FlowTimeline({ steps }: { steps: Step[] }) {
+export function FlowTimeline({ steps, run }: { steps: Step[]; run: RunContext }) {
   return (
-    <ol
-      className="space-y-0"
-      // The feed updates without the user acting, so it has to announce itself.
-      aria-live="polite"
-      aria-relevant="additions"
-    >
+    <ol className="space-y-0" aria-live="polite" aria-relevant="additions">
       {steps.map((step, index) => {
         const last = index === steps.length - 1
-        // Dim only what genuinely has not happened yet. A settlement that was
-        // never reached because the charge was rejected is the end of the
-        // story, not a blank row, so it keeps full contrast.
         const dim =
           (step.state === 'pending' || step.state === 'skipped') && step.tone === 'neutral'
         const waiting = step.state === 'active' && !step.entry
@@ -201,62 +215,58 @@ export function FlowTimeline({ steps }: { steps: Step[] }) {
 
             <div className={`flex-1 pb-6 ${dim ? 'opacity-45' : 'enter'}`}>
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <h3 className="font-semibold text-ink">{step.title}</h3>
+                {/* A size above the body text, so the actions read as the
+                    structure and the detail reads as detail. */}
+                <h3 className="text-lg font-semibold text-ink">{step.title}</h3>
                 {step.entry && (
                   <span className="font-mono text-xs text-ash">
-                    {time(step.entry.occurred_at)} · {step.entry.actor}
+                    {time(step.entry.occurred_at)}
                   </span>
                 )}
                 {step.state === 'skipped' && (
-                  <span className="text-xs text-mute">— not reached</span>
+                  <span className="text-xs text-mute">— never happened</span>
                 )}
                 {step.state === 'queued' && (
-                  <span className="text-xs font-semibold text-ink">— queued, not settled</span>
+                  <span className="text-xs font-semibold text-ink">— paying now</span>
                 )}
                 {waiting && <span className="text-xs font-semibold text-review">— waiting</span>}
               </div>
 
               {step.entry ? (
-                <EntryBody entry={step.entry} />
+                <EntryBody entry={step.entry} run={run} />
               ) : (
                 <p className={`mt-1 text-sm ${step.state === 'queued' ? 'text-body' : 'text-mute'}`}>
                   {step.state === 'queued'
-                    ? 'On the settlement queue. Money moves when the worker runs — offline, nothing will.'
+                    ? 'Sent for payment. The contract checks the limit one last time before any money moves.'
                     : step.hint}
                 </p>
               )}
 
-              {/* The re-run after an approval. Showing it is the point: approving
-                  supplies more to verify, it does not skip verification. */}
               {step.reverification?.verdict && (
                 <div className="mt-3 rounded-md border border-hairline bg-surface-bone/60 p-3">
-                  <p className="text-xs font-semibold text-ink">
-                    Re-verified after your approval
+                  <p className="text-sm font-semibold text-ink">Checked again after you approved</p>
+                  <p className="mt-1 text-sm text-charcoal">
+                    Approving does not skip the checks. The purchase went back through the
+                    Verifier with the seller and the basket now locked in.
                   </p>
-                  <p className="mt-1 text-xs text-charcoal">
-                    The mandate was bound to this merchant and this basket, then sent back
-                    through the Verifier. An expiry or a revocation in the meantime would have
-                    been caught here.
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <StatusBadge decision={step.reverification.verdict.decision} size="sm" />
-                    <span className="text-xs text-mute">
-                      still {step.reverification.verdict.decision} — approving records who
-                      released it, it does not rewrite the finding
-                    </span>
-                  </div>
                 </div>
               )}
 
-              {/* The summaries already read as sentences ("revoked: rejected
-                  during review"), so naming the event type again just stutters.
-                  The actor is the part that adds something: who did it. */}
-              {step.notes.map((note) => (
-                <p key={note.event_id} className="mt-1 text-xs text-mute">
-                  <Summary text={note.summary} />{' '}
-                  <span className="text-stone">· {note.actor}</span>
-                </p>
-              ))}
+              {step.notes.map((note) => {
+                const text = describe(note, run)
+                const noteHash = hashIn(note.summary)
+                return (
+                  <p key={note.event_id} className="mt-1 text-sm text-charcoal">
+                    {text ?? note.summary}
+                    {noteHash && (
+                      <>
+                        {' '}
+                        <TxLink hash={noteHash} />
+                      </>
+                    )}
+                  </p>
+                )
+              })}
             </div>
           </li>
         )

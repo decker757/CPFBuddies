@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { ReviewHold } from '../types'
-import { ReasonCode, RiskChip } from './StatusBadge'
+import { band } from './RiskPanel'
+
+const RISK_SHELL = {
+  pass: 'border-pass/30 bg-pass-bg',
+  review: 'border-review/30 bg-review-bg',
+  fail: 'border-fail/30 bg-fail-bg',
+} as const
+
+const RISK_INK = { pass: 'text-pass', review: 'text-review', fail: 'text-fail' } as const
 
 /** Time left before the hold lapses, or null once it has. */
 function useCountdown(deadline: string): number | null {
@@ -72,13 +80,19 @@ export function ReviewModal({
 
   const expired = remaining === null
   const { charge, evaluation } = hold
+  const score = evaluation.evaluation.risk_score
+  const { tone } = band(score)
 
-  // Only the concerning ones are worth a person's attention. `intent_match` is
-  // the single flag where true is the good news, which is exactly the sort of
-  // inversion that renders a reassuring green "Injection suspected" if missed.
-  const flags = Object.entries(evaluation.evaluation.flags).filter(([name, value]) =>
-    name === 'intent_match' ? !value : value,
-  )
+  // One list. The Evaluator's own sentences say it best; the flags only add
+  // anything when it gave no reasons at all. `intent_match` is the single flag
+  // where true is the good news, which is exactly the sort of inversion that
+  // renders a reassuring "Matches your intent" next to a refusal if missed.
+  const flagged = Object.entries(evaluation.evaluation.flags)
+    .filter(([name, value]) => (name === 'intent_match' ? !value : value))
+    .map(([name]) => FLAG_LABELS[name] ?? name)
+  const concerns = evaluation.evaluation.reasons.length
+    ? evaluation.evaluation.reasons
+    : flagged
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center">
@@ -89,14 +103,9 @@ export function ReviewModal({
         className="enter max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg bg-surface-card p-6 shadow-xl"
       >
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold tracking-widest text-review uppercase">
-              Held for your decision
-            </p>
-            <h2 id="review-title" className="display mt-1 text-2xl">
-              Approve this purchase?
-            </h2>
-          </div>
+          <h2 id="review-title" className="display text-2xl">
+            Approve this purchase?
+          </h2>
           <button
             type="button"
             onClick={onDismiss}
@@ -107,51 +116,42 @@ export function ReviewModal({
           </button>
         </div>
 
-        <div className="mt-4 rounded-md border border-hairline p-4">
-          {/* Merchant-supplied. Text only -- this is the injection surface. */}
-          <p className="font-semibold text-ink">{charge.title}</p>
-          <p className="mt-1 font-mono text-xs text-charcoal">
-            {charge.sku} · qty {charge.quantity} · {charge.merchant_id}
-          </p>
-          <p className="display mt-3 text-3xl">
-            {charge.amount.amount}{' '}
-            <span className="text-lg text-charcoal">{charge.amount.currency}</span>
-          </p>
-        </div>
-
-        <div className="mt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <RiskChip score={evaluation.evaluation.risk_score} />
-            <span className="font-mono text-xs text-ash">
-              {evaluation.evaluation.evaluator_id}
-            </span>
+        {/* Price and risk carry equal weight, because they are the two numbers
+            the decision actually turns on. */}
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="rounded-md border border-hairline p-4">
+            <p className="text-xs font-semibold tracking-wide text-charcoal uppercase">
+              Price
+            </p>
+            <p className="display mt-1 text-3xl">
+              {charge.amount.amount}
+              <span className="ml-1 text-base text-charcoal">{charge.amount.currency}</span>
+            </p>
           </div>
-
-          <ul className="mt-3 space-y-1.5">
-            {evaluation.evaluation.reasons.map((reason, i) => (
-              <li key={i} className="text-sm text-body">
-                — {reason}
-              </li>
-            ))}
-          </ul>
-
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {flags.map(([name]) => (
-              <span
-                key={name}
-                className="rounded-full bg-fail-bg px-2 py-0.5 text-xs font-medium text-fail"
-              >
-                {FLAG_LABELS[name] ?? name}
-              </span>
-            ))}
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {hold.verdict.reason_codes.map((code) => (
-              <ReasonCode key={code} code={code} />
-            ))}
+          <div className={`rounded-md border p-4 ${RISK_SHELL[tone]}`}>
+            <p className="text-xs font-semibold tracking-wide text-charcoal uppercase">
+              Risk
+            </p>
+            <p className={`display mt-1 text-3xl ${RISK_INK[tone]}`}>
+              {score}
+              <span className="ml-1 text-base opacity-60">/10</span>
+            </p>
           </div>
         </div>
+
+        {/* Merchant-supplied. Text only -- this is the injection surface. */}
+        <p className="mt-4 font-semibold text-ink">{charge.title}</p>
+
+        {/* One list, once. The same finding used to appear as a chip, a
+            sentence, a flag and a reason code, which reads as four problems
+            rather than one. */}
+        <ul className="mt-3 space-y-1.5">
+          {concerns.map((concern, i) => (
+            <li key={i} className="text-sm text-body">
+              — {concern}
+            </li>
+          ))}
+        </ul>
 
         <p className="mt-4 text-sm text-charcoal">
           {expired ? (

@@ -29,26 +29,6 @@ export function StatusBadge({
   )
 }
 
-/**
- * The Evaluator's 1-10 risk score.
- *
- * Banded to match the Verifier's own config defaults (1-3 settles, 4-7 asks a
- * human, 8-10 fails) so the colour here cannot imply an outcome the server
- * would disagree with.
- */
-export function RiskChip({ score }: { score: number }) {
-  const tone =
-    score <= 3 ? 'bg-pass-bg text-pass' : score <= 7 ? 'bg-review-bg text-review' : 'bg-fail-bg text-fail'
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
-    >
-      risk {score}
-      <span className="font-normal opacity-70">/10</span>
-    </span>
-  )
-}
-
 /** A reason code. Stable server-side strings, shown verbatim. */
 export function ReasonCode({ code }: { code: string }) {
   return (
