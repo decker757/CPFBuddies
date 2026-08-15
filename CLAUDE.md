@@ -392,6 +392,49 @@ distinction is the first thing a judge will probe.
 
 ## AWS
 
+**Deployed and live: https://d1sg4tcjbe6exr.cloudfront.net** — account 473488814046,
+ap-southeast-1. One CloudFront distribution serves both halves: S3 (private, reached through
+Origin Access Control) for the React app, and the rail under `/api`, with the prefix stripped
+by a CloudFront Function so the two share an origin and CORS never enters the picture.
+
+| Piece | What is actually running |
+| --- | --- |
+| Compute | **EC2 t3.small + Docker**, not App Runner — see below |
+| Edge | CloudFront + **WAF**: rate limit 2000/5min per IP in BLOCK, AWS common rules in COUNT |
+| Signing | **KMS**, both roles. No private key material in the deployment at all |
+| State | DynamoDB ×4, PITR on. Merchant and agent registries are still in memory |
+| Queue | SQS + DLQ, redrive after 3 attempts |
+| Logs | CloudWatch `/trustrail/rail`, 30 day retention, via the `awslogs` driver |
+| Evaluator | Bedrock Nova Lite, confirmed reachable from the instance |
+
+**App Runner is blocked, not skipped.** The account is gated by AWS activation for that
+service in *every* region — `SubscriptionRequiredException` even on a read-only
+`list-services`. The image is already in ECR and `scripts/deploy_apprunner.sh` prints a
+`create-service` command needing no private keys, so this is a one-command cutover if it
+clears.
+
+**The origin is not publicly reachable.** Its security group admits port 80 only from
+CloudFront's managed prefix list, so nobody can bypass the edge and hit the API over plain
+HTTP. The instance holds an Elastic IP because CloudFront origins are DNS names and replacing
+an instance otherwise silently repoints the distribution at a terminated box.
+
+Three things that only a real deployment surfaced, all now fixed and worth not relearning:
+
+- **`AWS_REGION` is not the variable botocore reads.** It reads `AWS_DEFAULT_REGION`. The
+  stores call `boto3.resource("dynamodb")` with no explicit region, so setting only the
+  obvious-looking name crashes every one of them with `NoRegionError` — while Bedrock keeps
+  working, because it resolves its own region. Set both.
+- **`PYTHONPATH` must point at the source tree.** Both packages find their runtime data with
+  `REPO_ROOT = Path(__file__).parents[N]`, so an import resolved from site-packages looks for
+  `config/verifier.toml` under `/usr/local/lib`. The container starts, answers one health
+  check, then dies on `FileNotFoundError`.
+- **IAM instance profiles are eventually consistent.** Launching an instance seconds after
+  creating its profile gives it no credentials, the ECR login in user-data fails, and nothing
+  ever listens on :80 — with no shell to find out, because the SSM agent cannot register
+  either. Retry the login in user-data and log to a file.
+
+### The original plan, for reference
+
 - ECS Fargate or App Runner for services
 - API Gateway plus WAF at the edge. Rate limiting and payload hygiene only. **Do NOT enable
   Bot Control**, our callers are all bots by design.
