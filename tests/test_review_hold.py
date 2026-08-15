@@ -49,11 +49,8 @@ def test_the_review_window_is_configuration(config: VerifierConfig) -> None:
 
 def test_a_hold_starts_pending_and_records_who_resolved_it(config, verifier, build):
     verdict = verifier.verify(build.request())
-    hold = ReviewHold(
-        charge_id=build.charge().charge_id,
-        mandate_id=verdict.mandate_id,
-        verdict=verdict,
-        held_at=DEMO_NOW,
+    hold = build.hold(
+        verdict,
         deadline=DEMO_NOW + timedelta(seconds=config.review_hold_seconds),
     )
 

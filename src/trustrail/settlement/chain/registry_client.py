@@ -10,6 +10,7 @@ means an operator reading a Snowtrace event sees the id they can look up in Dyna
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -220,7 +221,7 @@ class MandateRegistryClient:
 
         try:
             tx_hash = send_raw_transaction(self._w3, raw)
-        except Exception as error:  # noqa: BLE001 - re-raised below unless it is a revert
+        except Exception as error:
             # Nodes disagree about doomed transactions. Public RPC generally accepts and mines
             # them, producing a receipt with status 0. Hardhat, and some providers, simulate
             # first and refuse to broadcast. A refusal is still the contract saying no, so it
@@ -290,13 +291,48 @@ class MandateRegistryClient:
         )
 
 
+#: Revert payload embedded in a node's prose, e.g. Hardhat's "return data: 0x...".
+#: The last resort, for a node whose error shape none of the structured paths match.
+_HEX_PAYLOAD = re.compile(r"0x[0-9a-fA-F]{8,}")
+
+
 def _revert_selector(error: Exception) -> str | None:
-    """Pull the 4-byte error selector out of a revert, whichever shape the node used."""
-    data: Any = getattr(error, "data", None)
-    if data is None and error.args and isinstance(error.args[0], dict):
-        # Web3RPCError carries the whole JSON-RPC error object as its first argument.
-        data = error.args[0].get("data")
+    """Pull the 4-byte error selector out of a revert, whichever shape the node used.
+
+    Nodes and web3 versions disagree about where the payload lives, and getting
+    this wrong is expensive in a specific way: the selector goes undecoded, the
+    revert is re-raised as a transport error, and a contract that correctly
+    refused a charge is reported as a retryable fault. Every known shape is
+    therefore tried in turn rather than assuming one.
+    """
+    for candidate in (
+        # ContractLogicError, and older web3 releases on the RPC error.
+        getattr(error, "data", None),
+        # Web3RPCError: the parsed JSON-RPC envelope. `args[0]` looks like this
+        # dict but is its *string repr*, which is why it cannot be read directly.
+        _rpc_error_data(error),
+    ):
+        selector = _selector_from(candidate)
+        if selector is not None:
+            return selector
+    # Last resort: the node only described the payload in prose.
+    match = _HEX_PAYLOAD.search(str(error))
+    return match.group(0)[:10].lower() if match else None
+
+
+def _rpc_error_data(error: Exception) -> Any:
+    """The `error.data` field of a JSON-RPC response, if this exception carries one."""
+    response = getattr(error, "rpc_response", None)
+    if not isinstance(response, dict):
+        return None
+    inner = response.get("error")
+    return inner.get("data") if isinstance(inner, dict) else None
+
+
+def _selector_from(data: Any) -> str | None:
+    """Normalise one candidate payload down to a 4-byte selector."""
     if isinstance(data, dict):
+        # Hardhat nests the hex under its own `data` key alongside a message.
         data = data.get("data")
     if isinstance(data, (bytes, bytearray)):
         data = "0x" + bytes(data).hex()

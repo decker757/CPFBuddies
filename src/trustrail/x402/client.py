@@ -8,9 +8,10 @@ tests -- and ``x402`` never imports ``settlement``.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Callable, Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
 import httpx
 
@@ -53,7 +54,7 @@ class X402Client:
 
     def __init__(self, http: httpx.Client, clock: Callable[[], datetime] | None = None) -> None:
         self._http = http
-        self._now = clock or (lambda: datetime.now(timezone.utc))
+        self._now = clock or (lambda: datetime.now(UTC))
 
     def purchase(self, url: str, payload: dict, charge: Charge, pay: PayCallable) -> PurchaseResult:
         """POST, settle if asked to, then retry once with proof.

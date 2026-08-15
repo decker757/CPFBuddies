@@ -6,14 +6,24 @@ from app.marketplace.repository import (
     SystemClock,
 )
 from app.marketplace.routes import create_marketplace_router
-from app.marketplace.service import MarketplaceService
+from app.marketplace.service import MarketplaceService, SettlementProfile
 
 
-def build_marketplace_service() -> MarketplaceService:
+def build_marketplace_service(
+    settlement: SettlementProfile | None = None,
+) -> MarketplaceService:
+    """The stub marketplace.
+
+    `settlement` decides which chain and token its 402s quote. Left out, the
+    profile's defaults describe nothing deployed — fine for the offline suite,
+    wrong for anything that settles, which is why `app.rail` passes one derived
+    from the deployment record.
+    """
     return MarketplaceService(
         quotes=InMemoryQuoteRepository(),
         clock=SystemClock(),
         quote_ids=SecureQuoteIdGenerator(),
+        settlement=settlement or SettlementProfile(),
     )
 
 

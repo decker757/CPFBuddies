@@ -19,6 +19,7 @@ from trustrail.errors import (
 )
 from trustrail.models.audit import AuditEntry
 from trustrail.models.mandate import MandateRecord, MandateStatus
+from trustrail.models.registry import AgentRecord, MerchantRecord
 from trustrail.models.review import ReviewHold, ReviewOutcome
 
 _GLOBAL_SCOPE = "global"
@@ -114,6 +115,55 @@ class InMemoryAuditLog:
         """Every entry, oldest first. Backs the demo's decision dashboard."""
         with self._lock:
             return list(self._entries)
+
+
+class InMemoryMerchantDirectory:
+    """Registered merchant platforms, keyed by merchant id.
+
+    In memory rather than in DynamoDB because these records are seeded by the
+    Onboarding Orchestrator at boot, not accumulated at runtime — CLAUDE.md
+    says the registries "can be seeded by script for the demo". The port is a
+    Protocol, so a persistent implementation drops in without the orchestrator
+    noticing.
+    """
+
+    def __init__(self) -> None:
+        self._records: dict[str, MerchantRecord] = {}
+        self._lock = threading.Lock()
+
+    def get(self, merchant_id: str) -> MerchantRecord | None:
+        with self._lock:
+            return self._records.get(merchant_id)
+
+    def put(self, record: MerchantRecord) -> None:
+        with self._lock:
+            self._records[record.merchant_id] = record
+
+    def list_all(self) -> list[MerchantRecord]:
+        with self._lock:
+            records = list(self._records.values())
+        return sorted(records, key=lambda record: record.merchant_id)
+
+
+class InMemoryAgentDirectory:
+    """Internal agent identities, keyed by agent id. Seeded, like merchants."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, AgentRecord] = {}
+        self._lock = threading.Lock()
+
+    def get(self, agent_id: str) -> AgentRecord | None:
+        with self._lock:
+            return self._records.get(agent_id)
+
+    def put(self, record: AgentRecord) -> None:
+        with self._lock:
+            self._records[record.agent_id] = record
+
+    def list_all(self) -> list[AgentRecord]:
+        with self._lock:
+            records = list(self._records.values())
+        return sorted(records, key=lambda record: record.agent_id)
 
 
 class InMemoryReviewHoldStore:

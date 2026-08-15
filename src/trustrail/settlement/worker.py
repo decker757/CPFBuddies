@@ -17,8 +17,8 @@ forever burns gas and never settles.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from threading import Event
-from typing import Mapping
 
 from trustrail.models.audit import (
     AuditEntry,
@@ -90,7 +90,7 @@ class SettlementWorker:
             try:
                 if not self.process_once(limit=batch):
                     stop.wait(poll_seconds)
-            except Exception:  # noqa: BLE001 - keep consuming; the message is already nacked
+            except Exception:
                 logger.exception("settlement loop error")
                 stop.wait(poll_seconds)
         logger.info("settlement worker stopped")

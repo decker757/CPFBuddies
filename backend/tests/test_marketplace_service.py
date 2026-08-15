@@ -2,14 +2,28 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from trustrail.settlement.chain.deployment import Deployment
 
-from app.contracts import ListingsResponse, PurchaseRequest, xsgd
+from app.contracts import ListingsResponse, PurchaseRequest
 from app.marketplace.repository import InMemoryQuoteRepository
 from app.marketplace.service import (
     ExpiredQuote,
     MarketplaceService,
     QuoteAlreadyConsumed,
     QuoteIntegrityFailure,
+    SettlementProfile,
+)
+
+#: XSGD and the MandateRegistry as actually deployed on Avalanche C-Chain.
+MAINNET = Deployment(
+    network="avalanche",
+    chainId=43114,
+    settlementToken="0xb2f85b7ab3c2b6f62df06de6ae7d09c010a5096e",
+    settlementTokenSymbol="XSGD",
+    settlementTokenDecimals=6,
+    mandateRegistry="0xdb4050cf28cfa0cb956bfdbcb64341ee1c592c23",
+    registrar="0x" + "11" * 20,
+    settler="0x" + "22" * 20,
 )
 
 
@@ -32,11 +46,17 @@ class SequentialIds:
 
 def make_service(
     repository: InMemoryQuoteRepository | None = None,
+    settlement: SettlementProfile | None = None,
 ) -> tuple[MarketplaceService, InMemoryQuoteRepository, FixedClock]:
     quotes = repository or InMemoryQuoteRepository()
     clock = FixedClock()
     return (
-        MarketplaceService(quotes=quotes, clock=clock, quote_ids=SequentialIds()),
+        MarketplaceService(
+            quotes=quotes,
+            clock=clock,
+            quote_ids=SequentialIds(),
+            settlement=settlement or SettlementProfile(),
+        ),
         quotes,
         clock,
     )
@@ -104,3 +124,34 @@ def test_empty_catalog_still_returns_a_bound_quote() -> None:
     quote = service.list_items(q="anything", max_price=None, currency="XSGD")
     assert quote.items == []
     assert quote.basket_hash.startswith("0x")
+
+
+def test_the_default_settlement_profile_describes_nothing_deployed() -> None:
+    """A zero asset is not a token, and the default must not look plausible.
+
+    The offline suite needs a marketplace with no chain behind it. What it must
+    not have is a default that reads like a real deployment, because that is how
+    a 402 ends up quoting a network nobody is settling on.
+    """
+    assert not SettlementProfile().is_configured
+
+
+def test_the_profile_follows_the_deployment_record() -> None:
+    profile = SettlementProfile.from_deployment(MAINNET)
+
+    assert profile.is_configured
+    assert profile.chain_id == 43114
+    assert profile.asset == MAINNET.settlement_token
+    assert profile.network == "avalanche"
+
+
+def test_a_402_quotes_the_chain_and_asset_that_will_actually_settle() -> None:
+    """What the merchant advertises has to be what the worker spends."""
+    service, _, _ = make_service(settlement=SettlementProfile.from_deployment(MAINNET))
+    quote = service.list_items(q="TB-SOFT-2PK", max_price=None, currency="XSGD")
+
+    required = service.purchase(purchase_request(quote.quote_id), None)
+
+    assert required.payment_terms.chain_id == 43114
+    assert required.payment_terms.asset == MAINNET.settlement_token
+    assert required.payment_terms.network == "avalanche"

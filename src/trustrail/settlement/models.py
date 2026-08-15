@@ -19,6 +19,7 @@ from trustrail.models.charge import Charge
 from trustrail.models.mandate import SignedMandate
 from trustrail.models.money import Money
 from trustrail.models.primitives import Hex32, HexAddress
+from trustrail.models.review import HumanApproval
 from trustrail.models.verdict import Decision, ReasonCode, Verdict
 
 
@@ -35,6 +36,14 @@ class SettlementRequest(BaseModel):
     verdict: Verdict
     charge: Charge
     signed_mandate: SignedMandate
+    human_approval: HumanApproval | None = None
+    """Present only when a person answered a REVIEW.
+
+    A charge held for judgement and then approved travels with the REVIEW verdict it actually
+    received, plus this. The alternative -- re-labelling it PASS on the way to the queue --
+    would make the queue and the audit log disagree about what the Verifier said, and the
+    audit log is the thing we ask people to trust.
+    """
 
     @model_validator(mode="after")
     def _ids_must_agree(self) -> Self:
@@ -50,11 +59,26 @@ class SettlementRequest(BaseModel):
             raise ValueError("verdict references a different mandate than the one supplied")
         if self.verdict.charge_id != self.charge.charge_id:
             raise ValueError("verdict references a different charge than the one supplied")
+        if (
+            self.human_approval is not None
+            and self.human_approval.charge_id != self.charge.charge_id
+        ):
+            raise ValueError("approval references a different charge than the one supplied")
         return self
 
     @property
     def settleable(self) -> bool:
-        return self.verdict.decision is Decision.PASS
+        """PASS settles. REVIEW settles only once a named human has answered it.
+
+        FAIL never settles, and no approval field can change that -- which is the whole
+        point of the deterministic/judgement split. A human may answer a judgement call; a
+        human may not click past a forged signature or an over-cap amount.
+        """
+        if self.verdict.decision is Decision.PASS:
+            return True
+        return (
+            self.verdict.decision is Decision.REVIEW and self.human_approval is not None
+        )
 
 
 @dataclass(frozen=True)
@@ -77,15 +101,16 @@ class SettlementInstruction:
     quantity: int
 
     @classmethod
-    def from_request(cls, request: SettlementRequest) -> "SettlementInstruction":
+    def from_request(cls, request: SettlementRequest) -> SettlementInstruction:
         """Build from a Verifier PASS.
 
         Refuses anything else. The worker is not an orchestrator and must never be the place a
-        REVIEW quietly becomes a payment.
+        REVIEW quietly becomes a payment -- an approved REVIEW arrives already carrying the
+        approval, granted upstream by a person, rather than being waved through here.
         """
         if not request.settleable:
             raise ValueError(
-                f"only PASS decisions are settleable, got "
+                f"only PASS decisions, or a REVIEW a human approved, are settleable; got "
                 f"{request.verdict.decision.value} "
                 f"({[code.value for code in request.verdict.reason_codes]})"
             )

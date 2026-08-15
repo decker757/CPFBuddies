@@ -1,0 +1,13 @@
+{
+  "network": "avalanche",
+  "chainId": 43114,
+  "settlementToken": "0xb2F85b7AB3c2b6f62DF06dE6aE7D09c010a5096E",
+  "settlementTokenSymbol": "XSGD",
+  "settlementTokenDecimals": 6,
+  "mandateRegistry": "0xDB4050Cf28cfa0CB956bFdbCb64341EE1C592c23",
+  "registrar": "0x664C05A1183F93369d8B7986De86d9fB51263446",
+  "settler": "0x1920dBEA4BFa66dDF8c30a0577b88D1E7805533c",
+  "deployedAtBlock": 92877614,
+  "deployedAt": "2026-08-15T15:15:24.160689+00:00",
+  "note": "Deploy script hung on the final grantRole; the record was rebuilt from chain state."
+}

@@ -38,6 +38,12 @@ review_hold_seconds = 600
 name = "TrustRail"
 version = "1"
 # 43113 is Fuji, 43114 is Avalanche C-Chain mainnet. Cutover is this line.
-chain_id = 43113
-# Set to the deployed MandateRegistry address once workstream C has one.
-verifying_contract = "0x0000000000000000000000000000000000000000"
+chain_id = 43114
+# The deployed MandateRegistry on Avalanche C-Chain mainnet.
+# https://snowtrace.io/address/0xDB4050Cf28cfa0CB956bFdbCb64341EE1C592c23
+#
+# The Mandate Service signs under this domain and the Verifier checks under it.
+# They are configured separately, so moving one and not the other makes every
+# mandate fail as MANDATE_DIGEST_MISMATCH — which reads like tampering rather
+# than like a config error. Wire both from here.
+verifying_contract = "0xdb4050cf28cfa0cb956bfdbcb64341ee1c592c23"

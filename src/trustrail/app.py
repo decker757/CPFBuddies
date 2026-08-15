@@ -21,6 +21,11 @@ from trustrail.errors import (
 )
 from trustrail.mandate import api as mandate_api
 from trustrail.mandate.service import MandateService
+from trustrail.orchestrator import api as orchestrator_api
+from trustrail.orchestrator.onboarding import OnboardingOrchestrator
+from trustrail.orchestrator.purchase import PurchaseOrchestrator
+from trustrail.ports import AgentDirectory, MerchantDirectory
+from trustrail.registry import api as registry_api
 from trustrail.signing.eip712 import Eip712Domain
 from trustrail.signing.local import LocalSigner
 from trustrail.stores.memory import (
@@ -45,8 +50,21 @@ _DEFAULT_ERROR_STATUS = 400
 
 
 def create_app(
-    *, mandates: MandateService, verifier: VerifierService
+    *,
+    mandates: MandateService,
+    verifier: VerifierService,
+    orchestrator: PurchaseOrchestrator | None = None,
+    onboarding: OnboardingOrchestrator | None = None,
+    merchants: MerchantDirectory | None = None,
+    agents: AgentDirectory | None = None,
 ) -> FastAPI:
+    """Mount whichever services this deployment runs.
+
+    The composite services are optional because the atomic ones can be deployed
+    without them — and because the Purchase Orchestrator needs workstream B's
+    agents, which live in a separate installable. `backend.app.rail` is the
+    composition root that has both and wires the whole thing together.
+    """
     app = FastAPI(
         title="TrustRail",
         version=__version__,
@@ -54,6 +72,14 @@ def create_app(
     )
     app.include_router(mandate_api.build_router(mandates))
     app.include_router(verifier_api.build_router(verifier, mandates))
+    if orchestrator is not None:
+        app.include_router(orchestrator_api.build_router(orchestrator))
+    if onboarding is not None and merchants is not None and agents is not None:
+        app.include_router(
+            registry_api.build_router(
+                onboarding=onboarding, merchants=merchants, agents=agents
+            )
+        )
 
     @app.exception_handler(TrustRailError)
     def handle_trustrail_error(_: Request, exc: TrustRailError) -> JSONResponse:
