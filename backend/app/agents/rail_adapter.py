@@ -22,10 +22,10 @@ from __future__ import annotations
 
 from trustrail.models.candidate import PurchaseCandidate
 from trustrail.models.money import Money
-from trustrail.orchestrator.ports import ShoppingResult
+from trustrail.orchestrator.ports import NoCandidate, ShoppingResult
 from trustrail.ports import Signer
 
-from app.agents.browser import BrowserAgent
+from app.agents.browser import BrowserAgent, NoCandidateFound
 from app.agents.evaluator import EvaluatorAgent
 from app.contracts import CandidateSelection
 from app.evidence import to_signed_evidence
@@ -61,11 +61,24 @@ class BrowserAndEvaluator:
     async def shop(
         self, *, intent: str, max_amount: Money, mandate_id: str
     ) -> ShoppingResult:
-        selection = await self._browser.find_candidate(
-            intent=intent,
-            max_price=max_amount,
-            preferred_sku=self._preferred_sku,
-        )
+        try:
+            selection = await self._browser.find_candidate(
+                intent=intent,
+                max_price=max_amount,
+                preferred_sku=self._preferred_sku,
+            )
+        except NoCandidateFound as error:
+            # The port promises `NoCandidate` and B's agent raises its own
+            # `NoCandidateFound`. Neither is a subclass of the other, so
+            # without this the orchestrator's 502 handler never fires and
+            # "nothing was affordable" reaches the browser as a 500 with a
+            # stack trace. Translating at the seam is this adapter's job --
+            # it is the only thing that sees both vocabularies.
+            #
+            # The reason travels with it: the two cases a demo actually hits
+            # are a cap below every listing and a pinned SKU that the cap
+            # filtered out, and "no candidate" alone distinguishes neither.
+            raise NoCandidate(str(error)) from error
         # The Evaluator reads the listing the Browser Agent chose, not a
         # summary of it: injection lives in the description, and a summary is
         # where it would get lost.

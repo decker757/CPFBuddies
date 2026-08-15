@@ -106,8 +106,15 @@ def build_router(orchestrator: PurchaseOrchestrator) -> APIRouter:
                 ttl=timedelta(seconds=request.ttl_seconds),
             )
         except NoCandidate as error:
+            # Not a 500: nothing broke. Every merchant answered and none of
+            # them offered something this mandate could buy — most often a cap
+            # below the cheapest listing. The reason is carried through
+            # because it is the difference between "your budget was too low"
+            # and "the pinned demo SKU is not for sale", and a demo operator
+            # reading a red box needs to know which.
             raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY, "no merchant offered a candidate"
+                status.HTTP_502_BAD_GATEWAY,
+                f"no merchant offered a candidate within this mandate: {error}",
             ) from error
         return PurchaseResponse.of(outcome)
 

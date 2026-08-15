@@ -65,6 +65,12 @@ def suspicious():
     return build_rail(preferred_sku="TB-SUSPICIOUS")
 
 
+@pytest.fixture
+def unpinned():
+    """Real selection, by lowest price. What a demo with no `TRUSTRAIL_DEMO_SKU` does."""
+    return build_rail()
+
+
 class TestCleanPurchase:
     """Demo steps 1 to 6: intent, mandate, listing, score, PASS, settle."""
 
@@ -316,3 +322,43 @@ class TestHttpSurface:
         )
 
         assert response.status_code == 404
+
+    @pytest.mark.parametrize(
+        ("rail_fixture", "cap", "because"),
+        [
+            ("clean", "4.00", "preferred SKU"),
+            ("unpinned", "0.40", "no in-stock candidate"),
+        ],
+    )
+    def test_a_cap_nothing_satisfies_is_a_502_and_not_a_crash(
+        self, request, rail_fixture, cap, because
+    ):
+        """A budget below every listing must not reach the browser as a 500.
+
+        The Browser Agent drops candidates over the cap before selecting, so a
+        low enough cap leaves it nothing and it raises `NoCandidateFound`. The
+        orchestrator's API only knows `NoCandidate`, and neither exception is a
+        subclass of the other, so this used to surface as an unhandled 500 with
+        a stack trace. Two ways in, and a demo hits both: typing a small number
+        into the intent bar, and pinning a demo SKU the cap then filters out.
+
+        The reason is asserted, not just the status. "Your budget was too low"
+        and "the pinned SKU is not for sale" need different fixes from whoever
+        is reading the red box thirty seconds before a demo.
+        """
+        rail = request.getfixturevalue(rail_fixture)
+        client = TestClient(rail.app)
+
+        response = client.post(
+            "/purchases",
+            json={
+                "principal": PRINCIPAL,
+                "agent_id": BROWSER_AGENT_ID,
+                "intent": INTENT,
+                "max_amount": {"currency": "XSGD", "amount": cap},
+                "ttl_seconds": 600,
+            },
+        )
+
+        assert response.status_code == 502
+        assert because in response.json()["detail"]
