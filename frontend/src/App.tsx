@@ -169,8 +169,7 @@ export default function App() {
 
       {runFrom === null && (
         <p className="mt-10 rounded-md border border-dashed border-hairline p-6 text-sm text-mute">
-          Nothing running. Type an intent above — the mandate is minted before any product
-          is chosen, so what you approve is a budget, not a basket.
+          Nothing running yet. Say what you want above, set a limit, and press Delegate.
         </p>
       )}
 

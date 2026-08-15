@@ -148,7 +148,7 @@ export function ReviewModal({
         <ul className="mt-3 space-y-1.5">
           {concerns.map((concern, i) => (
             <li key={i} className="text-sm text-body">
-              — {concern}
+              - {concern}
             </li>
           ))}
         </ul>

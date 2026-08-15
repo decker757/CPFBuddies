@@ -44,10 +44,7 @@ export function RiskPanel({ evaluation }: { evaluation: EvaluatorOutput | null }
       </div>
       <div>
         <p className={`text-lg font-semibold ${INK[tone]}`}>{label}</p>
-        <p className="text-sm text-charcoal">
-          Risk score from the Evaluator Agent. It is evidence for the Verifier, never the
-          decision itself.
-        </p>
+        <p className="text-sm text-charcoal">Risk score from the Evaluator Agent.</p>
       </div>
     </section>
   )

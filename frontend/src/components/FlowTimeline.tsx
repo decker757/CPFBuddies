@@ -57,13 +57,13 @@ function describe(entry: AuditEntry, run: RunContext): string | null {
       // Once the purchase returns we have the charge itself and can drop the
       // SKU and merchant id, which mean nothing to a viewer.
       return run.charge
-        ? `${run.charge.title} — ${run.charge.amount.amount} ${run.charge.amount.currency}`
+        ? `${run.charge.title} - ${run.charge.amount.amount} ${run.charge.amount.currency}`
         : entry.summary
     case 'MANDATE_BOUND':
       return 'You approved. The mandate is now locked to this seller and this basket.'
     case 'MANDATE_REVOKED':
       return hashIn(entry.summary)
-        ? 'Recorded on the blockchain — the permission is publicly withdrawn.'
+        ? 'Recorded on the blockchain - the permission is publicly withdrawn.'
         : 'You rejected it. The permission is cancelled, so a retry cannot reuse it.'
     case 'MANDATE_CONSUMED':
       return 'Permission used up. It cannot be spent twice.'
@@ -160,7 +160,7 @@ function EntryBody({ entry, run }: { entry: AuditEntry; run: RunContext }) {
         <ul className="mt-1 space-y-1">
           {entry.evaluation.reasons.map((reason, i) => (
             <li key={i} className="text-sm text-body">
-              — {reason}
+              - {reason}
             </li>
           ))}
         </ul>
@@ -176,7 +176,7 @@ function EntryBody({ entry, run }: { entry: AuditEntry; run: RunContext }) {
           </div>
           {entry.verdict.failed_deterministically && (
             <p className="mt-2 text-sm font-semibold text-fail">
-              This one is a fact, not a judgement call. Nobody can approve past it — a
+              This one is a fact, not a judgement call. Nobody can approve past it - a
               bigger purchase needs a new spending limit.
             </p>
           )}
@@ -224,12 +224,12 @@ export function FlowTimeline({ steps, run }: { steps: Step[]; run: RunContext })
                   </span>
                 )}
                 {step.state === 'skipped' && (
-                  <span className="text-xs text-mute">— never happened</span>
+                  <span className="text-xs text-mute">- never happened</span>
                 )}
                 {step.state === 'queued' && (
-                  <span className="text-xs font-semibold text-ink">— paying now</span>
+                  <span className="text-xs font-semibold text-ink">- paying now</span>
                 )}
-                {waiting && <span className="text-xs font-semibold text-review">— waiting</span>}
+                {waiting && <span className="text-xs font-semibold text-review">- waiting</span>}
               </div>
 
               {step.entry ? (
